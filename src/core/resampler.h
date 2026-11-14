@@ -56,11 +56,13 @@ inline DspError resample_interleaved(
         return in[idx * channels + c];
     };
 
+    /* phase is continuous position in this buffer; may start residual from prior call */
     while (written < max_out) {
         int i0 = static_cast<int>(phase);
         float frac = phase - static_cast<float>(i0);
-        if (i0 >= in_frames - 1 && quality != DSP_SRC_HQ) break;
+        /* Need one sample ahead for linear/cubic; HQ taps handled via sample_at clamp */
         if (i0 >= in_frames) break;
+        if (quality != DSP_SRC_HQ && quality != DSP_SRC_NONE && i0 >= in_frames - 1) break;
 
         for (int c = 0; c < channels; ++c) {
             float y;
@@ -94,13 +96,39 @@ inline DspError resample_interleaved(
         phase += ratio;
     }
 
-    if (phase >= static_cast<float>(in_frames))
+    /*
+     * Streaming residual in the next buffer's index space.
+     * Linear/cubic stop near in_frames-1 (need a neighbor sample), so phase can
+     * land slightly below in_frames — that is a normal end-of-buffer, not overflow.
+     * OVERFLOW only when the out buffer filled while input still had usable samples.
+     */
+    const int i_end = static_cast<int>(phase);
+    const bool need_neighbor =
+        (quality == DSP_SRC_LINEAR || quality == DSP_SRC_CUBIC);
+    const bool input_exhausted =
+        (i_end >= in_frames) ||
+        (need_neighbor && i_end >= in_frames - 1) ||
+        (quality == DSP_SRC_HQ && i_end >= in_frames) ||
+        (quality == DSP_SRC_NONE && i_end >= in_frames);
+
+    float residual = phase - static_cast<float>(in_frames);
+    DspError status = DSP_OK;
+    if (!input_exhausted && written >= max_out) {
+        /* Host must pass a larger out buffer to consume remaining input. */
         st.phase = 0.f;
-    else
-        st.phase = phase - static_cast<float>(static_cast<int>(phase));
+        status = DSP_ERR_OVERFLOW;
+    } else if (residual >= 0.f) {
+        st.phase = residual;
+        if (st.phase > 0.f && st.phase < 1e-6f) st.phase = 0.f;
+    } else {
+        /* Finished this buffer (interpolation edge). Continuity: keep frac only. */
+        st.phase = phase - static_cast<float>(i_end);
+        if (st.phase < 0.f) st.phase = 0.f;
+        if (st.phase >= 1.f) st.phase = 0.f;
+    }
 
     *out_frames = written;
-    return DSP_OK;
+    return status;
 }
 
 } // namespace dsp

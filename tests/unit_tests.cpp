@@ -441,5 +441,75 @@ TEST(stats_api) {
     dsp_destroy(eng);
 }
 
-int main() { return run_all(); }
 
+TEST(eq_31_bands_full_params) {
+    /* Regression: engine must accept DSP_EQ_MAX_BANDS (31) full DspEqBand entries
+     * without dropping q or type, then process without NaNs. */
+    DspEngine* eng = create_engine();
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_EQ(DSP_EQ_MAX_BANDS, 31);
+
+    DspEqBand bands[DSP_EQ_MAX_BANDS];
+    static const float kHz[31] = {
+        20, 25, 32, 40, 50, 63, 80, 100, 125, 160,
+        200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600,
+        2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000
+    };
+    for (int i = 0; i < DSP_EQ_MAX_BANDS; ++i) {
+        bands[i].freq_hz = kHz[i];
+        bands[i].gain_db = (i % 2 == 0) ? 3.0f : -2.5f;
+        /* Non-default Q values across the set. */
+        bands[i].q = 0.5f + 0.15f * static_cast<float>(i % 7);
+        /* Mix peak / low-shelf / high-shelf (and a couple of HP/LP). */
+        if (i == 0)
+            bands[i].type = 1; /* low shelf */
+        else if (i == DSP_EQ_MAX_BANDS - 1)
+            bands[i].type = 2; /* high shelf */
+        else if (i == 5)
+            bands[i].type = 4; /* high-pass */
+        else if (i == 25)
+            bands[i].type = 3; /* low-pass */
+        else
+            bands[i].type = 0; /* peak */
+    }
+
+    EXPECT_EQ(dsp_eq_set_bands(eng, bands, DSP_EQ_MAX_BANDS), DSP_OK);
+    EXPECT_EQ(dsp_eq_band_count(eng), DSP_EQ_MAX_BANDS);
+    EXPECT_EQ(dsp_eq_enable(eng, 1), DSP_OK);
+
+    /* Count > max must be rejected. */
+    EXPECT_EQ(dsp_eq_set_bands(eng, bands, DSP_EQ_MAX_BANDS + 1), DSP_ERR_INVALID_ARG);
+    EXPECT_EQ(dsp_eq_band_count(eng), DSP_EQ_MAX_BANDS); /* previous set retained */
+
+    /* Single-band index at the last slot must also work. */
+    DspEqBand last = bands[DSP_EQ_MAX_BANDS - 1];
+    last.q = 2.7f;
+    last.type = 2;
+    last.gain_db = 4.0f;
+    EXPECT_EQ(dsp_eq_set_band(eng, DSP_EQ_MAX_BANDS - 1, &last), DSP_OK);
+    EXPECT_EQ(dsp_eq_set_band(eng, DSP_EQ_MAX_BANDS, &last), DSP_ERR_INVALID_ARG);
+
+    const int frames = 512;
+    std::vector<float> in(frames * 2, 0.1f), out(frames * 2);
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    for (float s : out)
+        EXPECT_TRUE(std::isfinite(s));
+
+    /* Re-set all 31 with deliberately varied non-default Q + types and process again. */
+    for (int i = 0; i < DSP_EQ_MAX_BANDS; ++i) {
+        bands[i].q = 0.4f + 0.2f * static_cast<float>((i * 3) % 11);
+        bands[i].type = (i % 5); /* 0..4 cycle: peak, LS, HS, LP, HP */
+        bands[i].gain_db = (bands[i].type == 3 || bands[i].type == 4) ? 0.f
+                          : ((i % 2) ? 2.0f : -1.5f);
+    }
+    EXPECT_EQ(dsp_eq_set_bands(eng, bands, DSP_EQ_MAX_BANDS), DSP_OK);
+    EXPECT_EQ(dsp_eq_band_count(eng), DSP_EQ_MAX_BANDS);
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    for (float s : out)
+        EXPECT_TRUE(std::isfinite(s));
+
+    dsp_destroy(eng);
+}
+
+
+int main() { return run_all(); }

@@ -256,12 +256,24 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
 }
 
 DspError dsp_process(DspEngine* eng, const float* in, float* out, int frames) {
-    if (!eng || !in || !out || frames < 1 || frames > eng->max_block)
+    if (!eng || !in || !out || frames < 1)
         return DSP_ERR_INVALID_ARG;
-    const int n = frames * eng->channels;
-    for (int i = 0; i < n; ++i) eng->work[i] = static_cast<sample_t>(in[i]);
-    process_block(eng, eng->work, frames);
-    for (int i = 0; i < n; ++i) out[i] = static_cast<float>(eng->work[i]);
+
+    const int ch = eng->channels;
+    const int maxb = eng->max_block;
+    int done = 0;
+    while (done < frames) {
+        int n = frames - done;
+        if (n > maxb) n = maxb;
+        const int samples = n * ch;
+        const int base = done * ch;
+        for (int i = 0; i < samples; ++i)
+            eng->work[i] = static_cast<sample_t>(in[base + i]);
+        process_block(eng, eng->work, n);
+        for (int i = 0; i < samples; ++i)
+            out[base + i] = static_cast<float>(eng->work[i]);
+        done += n;
+    }
     return DSP_OK;
 }
 

@@ -65,6 +65,7 @@ struct DspEngine {
     sample_t lim_thresh  = sample_t(0.89);
     sample_t lim_ceiling = sample_t(0.9886);
     sample_t lim_gr      = sample_t(1);
+    float    lim_gr_peak_db = 0.f;
 
     int lim_L      = 0;
     int delay_wr   = 0;
@@ -98,6 +99,7 @@ struct DspEngine {
         det_wr = 0;
         det_fill = 0;
         lim_gr = sample_t(1);
+        lim_gr_peak_db = 0.f;
         std::memset(delay_buf, 0, sizeof(delay_buf));
         std::memset(det_ring, 0, sizeof(det_ring));
         std::memset(tp_hist, 0, sizeof(tp_hist));
@@ -188,6 +190,23 @@ static sample_t limiter_gain_target(sample_t env, sample_t thresh, sample_t ceil
     return static_cast<sample_t>(g);
 }
 
+static void limiter_update_gr_meter(DspEngine* eng, sample_t gain_lin) {
+    float g = static_cast<float>(gain_lin);
+    float inst = 0.f;
+    if (g <= 1e-12f) inst = 120.f;
+    else if (g < 1.f) inst = -20.f * std::log10(g);
+
+    eng->lim_gr = gain_lin;
+    if (inst > eng->lim_gr_peak_db)
+        eng->lim_gr_peak_db = inst;
+    else {
+        const float decay = 1.f - 1.f / (1.5f * eng->sample_rate);
+        eng->lim_gr_peak_db *= (decay > 0.f ? decay : 0.999f);
+        if (eng->lim_gr_peak_db < 0.01f)
+            eng->lim_gr_peak_db = 0.f;
+    }
+}
+
 static void limiter_fast(DspEngine* eng, int frames) {
     const int ch = eng->channels;
     const sample_t thr = eng->lim_thresh;
@@ -215,7 +234,7 @@ static void limiter_fast(DspEngine* eng, int frames) {
 
         eng->lim_env[0]  = env;
         eng->lim_gain[0] = gain;
-        eng->lim_gr      = gain;
+        limiter_update_gr_meter(eng, gain);
         for (int c = 0; c < ch; ++c)
             eng->temp[c][i] *= gain;
     }
@@ -262,7 +281,7 @@ static void limiter_lookahead(DspEngine* eng, int frames) {
         if (g_tgt < gain) gain += atk * (g_tgt - gain);
         else              gain += rel * (g_tgt - gain);
 
-        eng->lim_gr = gain;
+        limiter_update_gr_meter(eng, gain);
 
         const int wr = eng->delay_wr;
         for (int c = 0; c < ch; ++c) {
@@ -344,7 +363,7 @@ static void limiter_truepeak(DspEngine* eng, int frames) {
         sample_t g_tgt = limiter_gain_target(E, eng->lim_thresh, C, eng->limiter_knee_db);
         if (g_tgt < gain) gain += atk * (g_tgt - gain);
         else              gain += rel * (g_tgt - gain);
-        eng->lim_gr = gain;
+        limiter_update_gr_meter(eng, gain);
 
         const int wr = eng->delay_wr;
         for (int c = 0; c < ch; ++c) {
@@ -717,6 +736,25 @@ float dsp_limiter_get_gr_db(const DspEngine* eng) {
     if (g <= 1e-12f) return 120.f;
     if (g >= 1.f) return 0.f;
     return -20.f * std::log10(g);
+}
+
+float dsp_limiter_get_gr_peak_db(const DspEngine* eng) {
+    return eng ? eng->lim_gr_peak_db : 0.f;
+}
+
+DspError dsp_limiter_get_meter(const DspEngine* eng, DspLimiterMeter* out) {
+    if (!eng || !out) return DSP_ERR_INVALID_ARG;
+    out->gr_db = dsp_limiter_get_gr_db(eng);
+    out->gr_peak_db = eng->lim_gr_peak_db;
+    out->active = (out->gr_db > 0.1f) ? 1 : 0;
+    return DSP_OK;
+}
+
+DspError dsp_limiter_reset_meters(DspEngine* eng) {
+    if (!eng) return DSP_ERR_INVALID_ARG;
+    eng->lim_gr_peak_db = 0.f;
+    eng->lim_gr = sample_t(1);
+    return DSP_OK;
 }
 
 DspError dsp_dither_enable(DspEngine* eng, int enable) {

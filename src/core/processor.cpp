@@ -523,6 +523,7 @@ DspEngine* dsp_create(const DspConfig* cfg) {
     eng->max_block   = cfg->max_block;
     eng->eq_enabled      = cfg->enable_eq != 0;
     eng->dvc.set_enabled(cfg->enable_dvc != 0);
+    eng->dvc.set_smoothing(cfg->enable_dvc != 0, 15.f, eng->sample_rate);
     eng->limiter_enabled = cfg->enable_limiter != 0;
     eng->dither_enabled  = cfg->enable_dither != 0;
     eng->dither_mode     = cfg->dither_mode;
@@ -564,6 +565,7 @@ DspError dsp_set_sample_rate(DspEngine* eng, float rate) {
     eng->sample_rate = rate;
     eng->update_limiter_coeffs();
     eng->clear_lookahead_state();
+    eng->dvc.set_sample_rate(rate);
     eng->rebuild_eq();
     return DSP_OK;
 }
@@ -606,7 +608,7 @@ DspError dsp_process_src(DspEngine* eng, const float* in, int in_frames,
     const int ch = eng->channels;
     DspError err = dsp::resample_interleaved(
         eng->src, in, in_frames, out, out_frames, ch, ratio, quality);
-    if (err != DSP_OK) return err;
+    if (err != DSP_OK && err != DSP_ERR_OVERFLOW) return err;
 
     const int written = *out_frames;
     int done = 0;
@@ -621,7 +623,7 @@ DspError dsp_process_src(DspEngine* eng, const float* in, int in_frames,
             out[done * ch + i] = static_cast<float>(eng->work[i]);
         done += n;
     }
-    return DSP_OK;
+    return err;
 }
 
 DspError dsp_eq_enable(DspEngine* eng, int enable) {
@@ -665,6 +667,21 @@ DspError dsp_dvc_enable(DspEngine* eng, int enable) {
     if (!eng) return DSP_ERR_INVALID_ARG;
     eng->dvc.set_enabled(enable != 0);
     return DSP_OK;
+}
+
+DspError dsp_dvc_set_smoothing(DspEngine* eng, int enable, float time_ms) {
+    if (!eng) return DSP_ERR_INVALID_ARG;
+    if (enable && time_ms < 0.f) return DSP_ERR_INVALID_ARG;
+    eng->dvc.set_smoothing(enable != 0, time_ms, eng->sample_rate);
+    return DSP_OK;
+}
+
+int dsp_dvc_get_smoothing(const DspEngine* eng) {
+    return eng && eng->dvc.smoothing() ? 1 : 0;
+}
+
+float dsp_dvc_get_smoothing_ms(const DspEngine* eng) {
+    return eng ? eng->dvc.smoothing_ms() : 0.f;
 }
 
 DspError dsp_limiter_enable(DspEngine* eng, int enable) {

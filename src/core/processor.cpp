@@ -474,6 +474,15 @@ DspEngine* dsp_create(const DspConfig* cfg) {
     eng->dither_mode     = cfg->dither_mode;
     eng->limiter_threshold_db = cfg->limiter_threshold_db;
     eng->limiter_release_ms   = cfg->limiter_release_ms > 0 ? cfg->limiter_release_ms : 50.f;
+    eng->limiter_mode         = cfg->limiter_mode;
+    if (eng->limiter_mode != DSP_LIMITER_FAST &&
+        eng->limiter_mode != DSP_LIMITER_LOOKAHEAD &&
+        eng->limiter_mode != DSP_LIMITER_TRUEPEAK)
+        eng->limiter_mode = DSP_LIMITER_FAST;
+    eng->limiter_ceiling_db   = cfg->limiter_ceiling_db;
+    eng->limiter_knee_db      = cfg->limiter_knee_db >= 0.f ? cfg->limiter_knee_db : 0.f;
+    eng->limiter_attack_ms    = cfg->limiter_attack_ms > 0.f ? cfg->limiter_attack_ms : 0.1f;
+    eng->limiter_lookahead_ms = cfg->limiter_lookahead_ms >= 0.f ? cfg->limiter_lookahead_ms : 2.0f;
     eng->update_limiter_coeffs();
     eng->eq.init(eng->sample_rate, eng->channels);
     eng->eq.set_enabled(eng->eq_enabled);

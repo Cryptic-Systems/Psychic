@@ -9,9 +9,9 @@
 namespace dsp {
 
 RingBuffer::RingBuffer(size_t capacity_frames, int channels)
-    : capacity_(capacity_frames)
-    , channels_(channels)
-    , data_(capacity_frames * static_cast<size_t>(channels), 0.f)
+    : capacity_(capacity_frames < 2 ? 2 : capacity_frames)
+    , channels_(channels < 1 ? 1 : channels)
+    , data_(capacity_ * static_cast<size_t>(channels_), 0.f)
 {
 }
 

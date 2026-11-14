@@ -47,6 +47,7 @@ struct DspEngine {
     float limiter_threshold_db = -1.0f;
     float limiter_release_ms   = 50.f;
     float limiter_ceiling_db   = -0.1f;
+    float limiter_knee_db      = 0.0f;
     float limiter_lookahead_ms = 2.0f;
     float limiter_attack_ms    = 0.1f;
 
@@ -152,6 +153,41 @@ static sample_t true_peak_pair(sample_t a, sample_t b) {
     return peak;
 }
 
+static sample_t limiter_gain_target(sample_t env, sample_t thresh, sample_t ceiling, float knee_db) {
+    if (env <= sample_t(1e-12)) return sample_t(1);
+
+    const float env_f = static_cast<float>(env);
+    const float thr_f = static_cast<float>(thresh > sample_t(1e-12) ? thresh : sample_t(1e-12));
+    const float ceil_f = static_cast<float>(ceiling > sample_t(1e-12) ? ceiling : sample_t(1e-12));
+
+    const float env_db = 20.f * std::log10(env_f);
+    const float thr_db = 20.f * std::log10(thr_f);
+    float gr_db = 0.f;
+
+    if (knee_db <= 0.f) {
+        if (env_f > thr_f)
+            gr_db = env_db - thr_db;
+    } else {
+        const float half = knee_db * 0.5f;
+        const float x = env_db - thr_db;
+        if (x <= -half) {
+            gr_db = 0.f;
+        } else if (x >= half) {
+            gr_db = x;
+        } else {
+            const float t = x + half;
+            gr_db = (t * t) / (2.f * knee_db);
+        }
+    }
+
+    float g = std::pow(10.f, -gr_db * 0.05f);
+    if (env_f * g > ceil_f)
+        g = ceil_f / env_f;
+    if (g > 1.f) g = 1.f;
+    if (g < 0.f) g = 0.f;
+    return static_cast<sample_t>(g);
+}
+
 static void limiter_fast(DspEngine* eng, int frames) {
     const int ch = eng->channels;
     const sample_t thr = eng->lim_thresh;
@@ -173,7 +209,7 @@ static void limiter_fast(DspEngine* eng, int frames) {
         if (peak > env) env += atk * (peak - env);
         else env += rel * (peak - env);
 
-        sample_t target = (env > thr) ? (thr / (env + sample_t(1e-12))) : sample_t(1);
+        sample_t target = limiter_gain_target(env, thr, eng->lim_ceiling, eng->limiter_knee_db);
         if (target < gain) gain += atk * (target - gain);
         else gain += rel * (target - gain);
 
@@ -222,7 +258,7 @@ static void limiter_lookahead(DspEngine* eng, int frames) {
             if (d > E) E = d;
         }
 
-        sample_t g_tgt = (E > C) ? (C / (E + sample_t(1e-12))) : sample_t(1);
+        sample_t g_tgt = limiter_gain_target(E, eng->lim_thresh, C, eng->limiter_knee_db);
         if (g_tgt < gain) gain += atk * (g_tgt - gain);
         else              gain += rel * (g_tgt - gain);
 
@@ -305,7 +341,7 @@ static void limiter_truepeak(DspEngine* eng, int frames) {
             if (d > E) E = d;
         }
 
-        sample_t g_tgt = (E > C) ? (C / (E + sample_t(1e-12))) : sample_t(1);
+        sample_t g_tgt = limiter_gain_target(E, eng->lim_thresh, C, eng->limiter_knee_db);
         if (g_tgt < gain) gain += atk * (g_tgt - gain);
         else              gain += rel * (g_tgt - gain);
         eng->lim_gr = gain;
@@ -605,6 +641,12 @@ DspError dsp_limiter_set_ceiling(DspEngine* eng, float ceiling_db) {
     return DSP_OK;
 }
 
+DspError dsp_limiter_set_knee_db(DspEngine* eng, float knee_db) {
+    if (!eng || knee_db < 0.f) return DSP_ERR_INVALID_ARG;
+    eng->limiter_knee_db = knee_db;
+    return DSP_OK;
+}
+
 DspError dsp_limiter_set_lookahead_ms(DspEngine* eng, float lookahead_ms) {
     if (!eng || lookahead_ms < 0.f) return DSP_ERR_INVALID_ARG;
     eng->limiter_lookahead_ms = lookahead_ms;
@@ -630,6 +672,10 @@ float dsp_limiter_get_release(const DspEngine* eng) {
 
 float dsp_limiter_get_ceiling(const DspEngine* eng) {
     return eng ? eng->limiter_ceiling_db : 0.f;
+}
+
+float dsp_limiter_get_knee_db(const DspEngine* eng) {
+    return eng ? eng->limiter_knee_db : 0.f;
 }
 
 float dsp_limiter_get_lookahead_ms(const DspEngine* eng) {

@@ -1,8 +1,8 @@
 /**
  * DSP ENGINE — Core processor
  *
- * Pipeline: EQ (MultiBandEq, typed RBJ) → DVC → true-peak limiter → dither
- * Optional SRC via dsp_process_src (linear / cubic / windowed-sinc HQ) then full pipeline.
+ * Pipeline: EQ → DVC → limiter (FAST or LOOKAHEAD brickwall) → dither
+ * Optional SRC via dsp_process_src then full pipeline.
  */
 
 #include "dsp_engine.h"
@@ -25,9 +25,10 @@ using sample_t = float;
 
 namespace {
 
-constexpr int kMaxChannels = 8;
-constexpr int kMaxEqBands  = 16;
-constexpr int kMaxBlock    = 8192;
+constexpr int kMaxChannels  = 8;
+constexpr int kMaxEqBands   = 16;
+constexpr int kMaxBlock     = 8192;
+constexpr int kMaxLookahead = 2048;
 
 } // anonymous
 
@@ -40,9 +41,14 @@ struct DspEngine {
     bool limiter_enabled = false;
     bool dither_enabled  = false;
 
-    DspDitherMode dither_mode = DSP_DITHER_TPDF;
+    DspDitherMode  dither_mode  = DSP_DITHER_TPDF;
+    DspLimiterMode limiter_mode = DSP_LIMITER_FAST;
+
     float limiter_threshold_db = -1.0f;
     float limiter_release_ms   = 50.f;
+    float limiter_ceiling_db   = -0.1f;
+    float limiter_lookahead_ms = 2.0f;
+    float limiter_attack_ms    = 0.1f;
 
     dsp::MultiBandEq eq;
     int eq_band_count = 0;
@@ -56,6 +62,17 @@ struct DspEngine {
     sample_t lim_attack  = sample_t(0.001);
     sample_t lim_release = sample_t(0.05);
     sample_t lim_thresh  = sample_t(0.89);
+    sample_t lim_ceiling = sample_t(0.9886);
+    sample_t lim_gr      = sample_t(1);
+
+    int lim_L      = 0;
+    int delay_wr   = 0;
+    int delay_fill = 0;
+    int det_wr     = 0;
+    int det_fill   = 0;
+
+    alignas(32) sample_t delay_buf[kMaxChannels][kMaxLookahead]{};
+    alignas(32) sample_t det_ring[kMaxLookahead + 1]{};
 
     uint32_t dither_state[kMaxChannels]{};
 
@@ -73,10 +90,36 @@ struct DspEngine {
         }
     }
 
+    void clear_lookahead_state() {
+        delay_wr = 0;
+        delay_fill = 0;
+        det_wr = 0;
+        det_fill = 0;
+        lim_gr = sample_t(1);
+        std::memset(delay_buf, 0, sizeof(delay_buf));
+        std::memset(det_ring, 0, sizeof(det_ring));
+    }
+
     void update_limiter_coeffs() {
-        lim_attack  = static_cast<sample_t>(1.0 - std::exp(-1.0 / (0.001 * sample_rate)));
-        lim_release = static_cast<sample_t>(1.0 - std::exp(-1.0 / ((limiter_release_ms * 0.001) * sample_rate)));
+        const double atk_ms = limiter_attack_ms > 0.f
+            ? static_cast<double>(limiter_attack_ms) : 0.05;
+        lim_attack  = static_cast<sample_t>(
+            1.0 - std::exp(-1.0 / (0.001 * atk_ms * sample_rate)));
+        lim_release = static_cast<sample_t>(
+            1.0 - std::exp(-1.0 / ((limiter_release_ms * 0.001) * sample_rate)));
         lim_thresh  = static_cast<sample_t>(dsp::db_to_linear(limiter_threshold_db));
+        lim_ceiling = static_cast<sample_t>(dsp::db_to_linear(limiter_ceiling_db));
+
+        if (limiter_mode == DSP_LIMITER_LOOKAHEAD &&
+            limiter_lookahead_ms > 0.f && sample_rate > 0.f) {
+            int L = static_cast<int>(std::lround(
+                0.001 * static_cast<double>(limiter_lookahead_ms) * sample_rate));
+            if (L < 1) L = 1;
+            if (L > kMaxLookahead) L = kMaxLookahead;
+            lim_L = L;
+        } else {
+            lim_L = 0;
+        }
     }
 
     void rebuild_eq() {
@@ -89,6 +132,192 @@ struct DspEngine {
         eq.set_enabled(eq_enabled);
     }
 };
+
+static sample_t true_peak_pair(sample_t a, sample_t b) {
+    sample_t peak = a >= 0 ? a : -a;
+    sample_t ab = b >= 0 ? b : -b;
+    if (ab > peak) peak = ab;
+    sample_t m = sample_t(0.5) * (a + b);
+    sample_t am = m >= 0 ? m : -m;
+    if (am > peak) peak = am;
+    sample_t q1 = a * sample_t(0.75) + b * sample_t(0.25);
+    sample_t q3 = a * sample_t(0.25) + b * sample_t(0.75);
+    sample_t aq1 = q1 >= 0 ? q1 : -q1;
+    sample_t aq3 = q3 >= 0 ? q3 : -q3;
+    if (aq1 > peak) peak = aq1;
+    if (aq3 > peak) peak = aq3;
+    return peak;
+}
+
+static void limiter_fast(DspEngine* eng, int frames) {
+    const int ch = eng->channels;
+    const sample_t thr = eng->lim_thresh;
+    const sample_t atk = eng->lim_attack;
+    const sample_t rel = eng->lim_release;
+    for (int i = 0; i < frames; ++i) {
+        sample_t peak = sample_t(0);
+        for (int c = 0; c < ch; ++c) {
+            sample_t x = eng->temp[c][i];
+            sample_t ax = x >= 0 ? x : -x;
+            if (ax > peak) peak = ax;
+            if (i + 1 < frames) {
+                sample_t tp = true_peak_pair(eng->temp[c][i], eng->temp[c][i + 1]);
+                if (tp > peak) peak = tp;
+            }
+        }
+        sample_t env = eng->lim_env[0];
+        sample_t gain = eng->lim_gain[0];
+        if (peak > env) env += atk * (peak - env);
+        else env += rel * (peak - env);
+
+        sample_t target = (env > thr) ? (thr / (env + sample_t(1e-12))) : sample_t(1);
+        if (target < gain) gain += atk * (target - gain);
+        else gain += rel * (target - gain);
+
+        eng->lim_env[0]  = env;
+        eng->lim_gain[0] = gain;
+        eng->lim_gr      = gain;
+        for (int c = 0; c < ch; ++c)
+            eng->temp[c][i] *= gain;
+    }
+    for (int c = 1; c < ch; ++c) {
+        eng->lim_env[c]  = eng->lim_env[0];
+        eng->lim_gain[c] = eng->lim_gain[0];
+    }
+}
+
+static void limiter_lookahead(DspEngine* eng, int frames) {
+    const int ch = eng->channels;
+    const int L  = eng->lim_L;
+    const sample_t C   = eng->lim_ceiling;
+    const sample_t atk = eng->lim_attack;
+    const sample_t rel = eng->lim_release;
+    const int det_cap  = L + 1;
+
+    sample_t gain = eng->lim_gain[0];
+
+    for (int i = 0; i < frames; ++i) {
+        sample_t peak = sample_t(0);
+        for (int c = 0; c < ch; ++c) {
+            sample_t x = eng->temp[c][i];
+            sample_t ax = x >= 0 ? x : -x;
+            if (ax > peak) peak = ax;
+            if (i + 1 < frames) {
+                sample_t tp = true_peak_pair(eng->temp[c][i], eng->temp[c][i + 1]);
+                if (tp > peak) peak = tp;
+            }
+        }
+
+        eng->det_ring[eng->det_wr] = peak;
+        eng->det_wr = (eng->det_wr + 1) % det_cap;
+        if (eng->det_fill < det_cap) eng->det_fill++;
+
+        sample_t E = sample_t(0);
+        const int n_det = eng->det_fill;
+        for (int k = 0; k < n_det; ++k) {
+            sample_t d = eng->det_ring[k];
+            if (d > E) E = d;
+        }
+
+        sample_t g_tgt = (E > C) ? (C / (E + sample_t(1e-12))) : sample_t(1);
+        if (g_tgt < gain) gain += atk * (g_tgt - gain);
+        else              gain += rel * (g_tgt - gain);
+
+        eng->lim_gr = gain;
+
+        const int wr = eng->delay_wr;
+        for (int c = 0; c < ch; ++c) {
+            sample_t delayed = sample_t(0);
+            if (eng->delay_fill >= L) {
+                int rd = wr - L;
+                if (rd < 0) rd += kMaxLookahead;
+                delayed = eng->delay_buf[c][rd];
+            }
+            eng->delay_buf[c][wr] = eng->temp[c][i];
+            sample_t y = delayed * gain;
+            if (y > C) y = C;
+            if (y < -C) y = -C;
+            eng->temp[c][i] = y;
+        }
+        eng->delay_wr = (wr + 1) % kMaxLookahead;
+        if (eng->delay_fill < kMaxLookahead) eng->delay_fill++;
+    }
+
+    eng->lim_gain[0] = gain;
+    for (int c = 1; c < ch; ++c)
+        eng->lim_gain[c] = gain;
+}
+
+static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
+    const int ch = eng->channels;
+    for (int i = 0; i < frames; ++i)
+        for (int c = 0; c < ch; ++c)
+            eng->temp[c][i] = interleaved[i * ch + c];
+
+#ifdef DSP_USE_DOUBLE
+    if (eng->eq_enabled) {
+        for (int c = 0; c < ch; ++c) eng->eq_ptrs[c] = eng->temp[c];
+        eng->eq.process(eng->eq_ptrs, frames);
+    }
+#else
+    if (eng->eq_enabled) {
+        static thread_local double dbuf[kMaxChannels][kMaxBlock];
+        double* ptrs[kMaxChannels];
+        for (int c = 0; c < ch; ++c) {
+            for (int i = 0; i < frames; ++i)
+                dbuf[c][i] = static_cast<double>(eng->temp[c][i]);
+            ptrs[c] = dbuf[c];
+        }
+        eng->eq.process(ptrs, frames);
+        for (int c = 0; c < ch; ++c)
+            for (int i = 0; i < frames; ++i)
+                eng->temp[c][i] = static_cast<sample_t>(dbuf[c][i]);
+    }
+#endif
+
+    if (eng->dvc.enabled()) {
+        sample_t* ptrs[kMaxChannels];
+        for (int c = 0; c < ch; ++c)
+            ptrs[c] = eng->temp[c];
+        eng->dvc.process_planar(ptrs, frames, ch);
+    }
+
+    if (eng->limiter_enabled) {
+        if (eng->limiter_mode == DSP_LIMITER_LOOKAHEAD && eng->lim_L > 0)
+            limiter_lookahead(eng, frames);
+        else
+            limiter_fast(eng, frames);
+    }
+
+    if (eng->dither_enabled && eng->dither_mode != DSP_DITHER_NONE) {
+        constexpr float kScale = 32768.f;
+        constexpr float kInv = 1.f / 32768.f;
+        for (int c = 0; c < ch; ++c) {
+            uint32_t s = eng->dither_state[c];
+            float err = 0.f;
+            for (int i = 0; i < frames; ++i) {
+                s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+                float r1 = (s & 0xFFFFFF) / float(0x1000000) - 0.5f;
+                s ^= s << 13; s ^= s >> 17; s ^= s << 5;
+                float r2 = (s & 0xFFFFFF) / float(0x1000000) - 0.5f;
+                float noise = r1 + r2;
+                float x = static_cast<float>(eng->temp[c][i]);
+                if (eng->dither_mode == DSP_DITHER_SHAPED) x += err;
+                float scaled = x * kScale + noise;
+                float q = std::floor(scaled + 0.5f);
+                if (q > 32767.f) q = 32767.f;
+                if (q < -32768.f) q = -32768.f;
+                if (eng->dither_mode == DSP_DITHER_SHAPED) err = (scaled - q) * 0.5f;
+                eng->temp[c][i] = static_cast<sample_t>(q * kInv);
+            }
+            eng->dither_state[c] = s;
+        }
+    }
+
+    for (int i = 0; i < frames; ++i)
+        for (int c = 0; c < ch; ++c)
+            interleaved[i * ch + c] = eng->temp[c][i];
+}
 
 extern "C" {
 
@@ -122,11 +351,12 @@ DspError dsp_reset(DspEngine* eng) {
     if (!eng) return DSP_ERR_INVALID_ARG;
     eng->eq.reset_state();
     for (int c = 0; c < eng->channels; ++c) {
-        eng->lim_env[c] = sample_t(0);
+        eng->lim_env[c]  = sample_t(0);
         eng->lim_gain[c] = sample_t(1);
     }
     eng->src.reset();
     eng->dvc.reset();
+    eng->clear_lookahead_state();
     return DSP_OK;
 }
 
@@ -134,6 +364,7 @@ DspError dsp_set_sample_rate(DspEngine* eng, float rate) {
     if (!eng || rate < 8000.f || rate > 384000.f) return DSP_ERR_INVALID_ARG;
     eng->sample_rate = rate;
     eng->update_limiter_coeffs();
+    eng->clear_lookahead_state();
     eng->rebuild_eq();
     return DSP_OK;
 }
@@ -141,118 +372,9 @@ DspError dsp_set_sample_rate(DspEngine* eng, float rate) {
 DspError dsp_set_channels(DspEngine* eng, int channels) {
     if (!eng || channels < 1 || channels > kMaxChannels) return DSP_ERR_INVALID_ARG;
     eng->channels = channels;
+    eng->clear_lookahead_state();
     eng->rebuild_eq();
     return DSP_OK;
-}
-
-static sample_t true_peak_pair(sample_t a, sample_t b) {
-    sample_t peak = a >= 0 ? a : -a;
-    sample_t ab = b >= 0 ? b : -b;
-    if (ab > peak) peak = ab;
-    sample_t m = sample_t(0.5) * (a + b);
-    sample_t am = m >= 0 ? m : -m;
-    if (am > peak) peak = am;
-    sample_t q1 = a * sample_t(0.75) + b * sample_t(0.25);
-    sample_t q3 = a * sample_t(0.25) + b * sample_t(0.75);
-    sample_t aq1 = q1 >= 0 ? q1 : -q1;
-    sample_t aq3 = q3 >= 0 ? q3 : -q3;
-    if (aq1 > peak) peak = aq1;
-    if (aq3 > peak) peak = aq3;
-    return peak;
-}
-
-static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
-    const int ch = eng->channels;
-    for (int i = 0; i < frames; ++i)
-        for (int c = 0; c < ch; ++c)
-            eng->temp[c][i] = interleaved[i * ch + c];
-
-#ifdef DSP_USE_DOUBLE
-    if (eng->eq_enabled) {
-        for (int c = 0; c < ch; ++c) eng->eq_ptrs[c] = eng->temp[c];
-        eng->eq.process(eng->eq_ptrs, frames);
-    }
-#else
-    if (eng->eq_enabled) {
-        static thread_local double dbuf[kMaxChannels][kMaxBlock];
-        double* ptrs[kMaxChannels];
-        for (int c = 0; c < ch; ++c) {
-            for (int i = 0; i < frames; ++i) dbuf[c][i] = static_cast<double>(eng->temp[c][i]);
-            ptrs[c] = dbuf[c];
-        }
-        eng->eq.process(ptrs, frames);
-        for (int c = 0; c < ch; ++c)
-            for (int i = 0; i < frames; ++i) eng->temp[c][i] = static_cast<sample_t>(dbuf[c][i]);
-    }
-#endif
-
-    if (eng->dvc.enabled()) {
-        sample_t* ptrs[kMaxChannels];
-        for (int c = 0; c < ch; ++c)
-            ptrs[c] = eng->temp[c];
-        eng->dvc.process_planar(ptrs, frames, ch);
-    }
-
-    if (eng->limiter_enabled) {
-        const sample_t thr = eng->lim_thresh;
-        const sample_t atk = eng->lim_attack;
-        const sample_t rel = eng->lim_release;
-        for (int i = 0; i < frames; ++i) {
-            sample_t peak = sample_t(0);
-            for (int c = 0; c < ch; ++c) {
-                sample_t x = eng->temp[c][i];
-                sample_t ax = x >= 0 ? x : -x;
-                if (ax > peak) peak = ax;
-                if (i + 1 < frames) {
-                    sample_t tp = true_peak_pair(eng->temp[c][i], eng->temp[c][i + 1]);
-                    if (tp > peak) peak = tp;
-                }
-            }
-            sample_t env = eng->lim_env[0];
-            sample_t gain = eng->lim_gain[0];
-            if (peak > env) env += atk * (peak - env);
-            else env += rel * (peak - env);
-            sample_t target = (env > thr) ? (thr / (env + sample_t(1e-12))) : sample_t(1);
-            if (target < gain) gain += atk * (target - gain);
-            else gain += rel * (target - gain);
-            eng->lim_env[0] = env;
-            eng->lim_gain[0] = gain;
-            for (int c = 0; c < ch; ++c) eng->temp[c][i] *= gain;
-        }
-        for (int c = 1; c < ch; ++c) {
-            eng->lim_env[c] = eng->lim_env[0];
-            eng->lim_gain[c] = eng->lim_gain[0];
-        }
-    }
-
-    if (eng->dither_enabled && eng->dither_mode != DSP_DITHER_NONE) {
-        constexpr float kScale = 32768.f;
-        constexpr float kInv = 1.f / 32768.f;
-        for (int c = 0; c < ch; ++c) {
-            uint32_t s = eng->dither_state[c];
-            float err = 0.f;
-            for (int i = 0; i < frames; ++i) {
-                s ^= s << 13; s ^= s >> 17; s ^= s << 5;
-                float r1 = (s & 0xFFFFFF) / float(0x1000000) - 0.5f;
-                s ^= s << 13; s ^= s >> 17; s ^= s << 5;
-                float r2 = (s & 0xFFFFFF) / float(0x1000000) - 0.5f;
-                float noise = r1 + r2;
-                float x = static_cast<float>(eng->temp[c][i]);
-                if (eng->dither_mode == DSP_DITHER_SHAPED) x += err;
-                float scaled = x * kScale + noise;
-                float q = std::floor(scaled + 0.5f);
-                if (q > 32767.f) q = 32767.f;
-                if (q < -32768.f) q = -32768.f;
-                if (eng->dither_mode == DSP_DITHER_SHAPED) err = (scaled - q) * 0.5f;
-                eng->temp[c][i] = static_cast<sample_t>(q * kInv);
-            }
-            eng->dither_state[c] = s;
-        }
-    }
-
-    for (int i = 0; i < frames; ++i)
-        for (int c = 0; c < ch; ++c)
-            interleaved[i * ch + c] = eng->temp[c][i];
 }
 
 DspError dsp_process(DspEngine* eng, const float* in, float* out, int frames) {
@@ -366,6 +488,38 @@ DspError dsp_limiter_set_release(DspEngine* eng, float release_ms) {
     return DSP_OK;
 }
 
+DspError dsp_limiter_set_mode(DspEngine* eng, DspLimiterMode mode) {
+    if (!eng) return DSP_ERR_INVALID_ARG;
+    if (mode != DSP_LIMITER_FAST && mode != DSP_LIMITER_LOOKAHEAD)
+        return DSP_ERR_INVALID_ARG;
+    eng->limiter_mode = mode;
+    eng->update_limiter_coeffs();
+    eng->clear_lookahead_state();
+    return DSP_OK;
+}
+
+DspError dsp_limiter_set_ceiling(DspEngine* eng, float ceiling_db) {
+    if (!eng) return DSP_ERR_INVALID_ARG;
+    eng->limiter_ceiling_db = ceiling_db;
+    eng->update_limiter_coeffs();
+    return DSP_OK;
+}
+
+DspError dsp_limiter_set_lookahead_ms(DspEngine* eng, float lookahead_ms) {
+    if (!eng || lookahead_ms < 0.f) return DSP_ERR_INVALID_ARG;
+    eng->limiter_lookahead_ms = lookahead_ms;
+    eng->update_limiter_coeffs();
+    eng->clear_lookahead_state();
+    return DSP_OK;
+}
+
+DspError dsp_limiter_set_attack_ms(DspEngine* eng, float attack_ms) {
+    if (!eng || attack_ms <= 0.f) return DSP_ERR_INVALID_ARG;
+    eng->limiter_attack_ms = attack_ms;
+    eng->update_limiter_coeffs();
+    return DSP_OK;
+}
+
 float dsp_limiter_get_threshold(const DspEngine* eng) {
     return eng ? eng->limiter_threshold_db : 0.f;
 }
@@ -374,8 +528,38 @@ float dsp_limiter_get_release(const DspEngine* eng) {
     return eng ? eng->limiter_release_ms : 0.f;
 }
 
+float dsp_limiter_get_ceiling(const DspEngine* eng) {
+    return eng ? eng->limiter_ceiling_db : 0.f;
+}
+
+float dsp_limiter_get_lookahead_ms(const DspEngine* eng) {
+    return eng ? eng->limiter_lookahead_ms : 0.f;
+}
+
+float dsp_limiter_get_attack_ms(const DspEngine* eng) {
+    return eng ? eng->limiter_attack_ms : 0.f;
+}
+
+DspLimiterMode dsp_limiter_get_mode(const DspEngine* eng) {
+    return eng ? eng->limiter_mode : DSP_LIMITER_FAST;
+}
+
 int dsp_limiter_is_enabled(const DspEngine* eng) {
     return eng && eng->limiter_enabled ? 1 : 0;
+}
+
+int dsp_limiter_get_latency_samples(const DspEngine* eng) {
+    if (!eng || !eng->limiter_enabled) return 0;
+    if (eng->limiter_mode != DSP_LIMITER_LOOKAHEAD) return 0;
+    return eng->lim_L;
+}
+
+float dsp_limiter_get_gr_db(const DspEngine* eng) {
+    if (!eng) return 0.f;
+    float g = static_cast<float>(eng->lim_gr);
+    if (g <= 1e-12f) return 120.f;
+    if (g >= 1.f) return 0.f;
+    return -20.f * std::log10(g);
 }
 
 DspError dsp_dither_enable(DspEngine* eng, int enable) {

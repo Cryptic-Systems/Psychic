@@ -2,6 +2,11 @@
 
 ## [0.4.0] — 2026-11-14
 
+### EQ capacity
+- Raised engine-side parametric EQ max from 16 → **31** bands (`DSP_EQ_MAX_BANDS`)
+- Public header exposes `DSP_EQ_MAX_BANDS`; bulk setter retains full `DspEqBand` (q + type)
+- Regression test: configure + process 31 bands with non-default Q and shelf/peak/LP/HP types
+
 ### Resonate integration surface
 - `dsp_process_pcm16` in-place PCM16 path for Media3 / JNI
 - Lock-free control mailbox (setters safe from UI thread; applied at process)
@@ -14,6 +19,7 @@
 
 ### Tests
 - 34 unit tests covering PCM16, preamp/speaker, two-band, bypass, stats
+- Plus regression for 31-band EQ full params
 
 ## [0.3.2] — 2026-10-26
 

@@ -74,7 +74,7 @@ typedef struct {
     float freq_hz;
     float gain_db;
     float q;
-    int type;
+    int type; /* 0=peak, 1=low_shelf, 2=high_shelf, 3=low_pass, 4=high_pass */
 } DspEqBand;
 
 DSP_API const char* dsp_version(void);
@@ -84,6 +84,11 @@ DSP_API DspError   dsp_reset(DspEngine* eng);
 DSP_API DspError   dsp_set_sample_rate(DspEngine* eng, float rate);
 DSP_API DspError   dsp_set_channels(DspEngine* eng, int channels);
 
+/**
+ * Process interleaved float32 audio.
+ * Frames larger than eng max_block are processed in max_block-sized chunks
+ * automatically. Returns DSP_ERR_INVALID_ARG if eng/in/out are null or frames < 1.
+ */
 DSP_API DspError dsp_process(DspEngine* eng, const float* in, float* out, int frames);
 
 /**

@@ -2,22 +2,23 @@
  * DSP ENGINE — Public C ABI
  *
  * Highly optimized 64-bit processing engine with Direct Volume Control (DVC),
- * multi-band parametric EQ, true-peak limiter, dither, sample-rate conversion,
- * and optional platform audio backends (AAudio / WASAPI / Core Audio / ALSA).
+ * multi-band parametric EQ, true-peak / two-band limiter, preamp, speaker-mode
+ * virtual bass, dither, sample-rate conversion, and optional platform backends.
  *
- * Version 0.3.2
+ * Version 0.4.0 — Resonate integration surface
  *
  * THREAD SAFETY
  * -------------
- * dsp_process / dsp_process_src must run on a single audio thread.
- * Control calls (set_*, enable, eq_set_*, limiter_*, dvc_*, reset) are NOT
- * synchronized with process — do not call them concurrently with process.
- * Meter getters (get_gr_*, get_meter) may be read from a UI thread; values are
- * best-effort snapshots (may tear slightly under concurrent process).
+ * dsp_process / dsp_process_pcm16 / dsp_process_src must run on a single audio
+ * thread. Control calls may be issued from any thread: they write into a
+ * lock-free mailbox that is applied at the start of the next process block.
+ * Meter getters are best-effort snapshots (may tear slightly).
  *
- * DVC gain changes are instant unless dsp_dvc_set_smoothing() is enabled
- * (recommended ~10–30 ms to avoid clicks). When enable_dvc is set at create,
- * ~15 ms smoothing is applied by default.
+ * Pipeline (when processing enabled):
+ *   DC block → EQ → speaker/VB → preamp → DVC → limiter → dither
+ *
+ * DVC gain changes use optional one-pole smoothing (default ~15 ms when DVC is
+ * enabled at create).
  */
 
 #ifndef DSP_ENGINE_H
@@ -70,7 +71,9 @@ typedef enum {
 typedef enum {
     DSP_LIMITER_FAST = 0,
     DSP_LIMITER_LOOKAHEAD = 1,
-    DSP_LIMITER_TRUEPEAK = 2
+    DSP_LIMITER_TRUEPEAK = 2,
+    /** Linkwitz-Riley split + independent high/low brickwall ceilings. */
+    DSP_LIMITER_TWOBAND = 3
 } DspLimiterMode;
 
 typedef struct DspEngine DspEngine;
@@ -91,13 +94,19 @@ typedef struct {
     float limiter_knee_db;
     float limiter_attack_ms;
     float limiter_lookahead_ms;
+    /** Optional create-time defaults (0 = use engine defaults). */
+    float preamp_db;
+    float crossover_hz;
+    float limiter_ceiling_low_db;
+    int   enable_speaker;
+    float virtual_bass;
 } DspConfig;
 
 typedef struct {
     float freq_hz;
     float gain_db;
     float q;
-    int type;
+    int type; /* 0=peak, 1=lowshelf, 2=highshelf, 3=lp, 4=hp */
 } DspEqBand;
 
 /**
@@ -112,6 +121,17 @@ typedef struct {
     int   active;
 } DspLimiterMeter;
 
+/** Optional process / CPU diagnostics for host UIs. */
+typedef struct {
+    int64_t process_calls;
+    int64_t total_ns;
+    int64_t max_ns;
+    int64_t overrun_count;
+    int32_t last_frames;
+    int32_t sample_rate;
+    int32_t channels;
+} DspStats;
+
 DSP_API const char* dsp_version(void);
 DSP_API DspEngine* dsp_create(const DspConfig* cfg);
 DSP_API void       dsp_destroy(DspEngine* eng);
@@ -119,7 +139,22 @@ DSP_API DspError   dsp_reset(DspEngine* eng);
 DSP_API DspError   dsp_set_sample_rate(DspEngine* eng, float rate);
 DSP_API DspError   dsp_set_channels(DspEngine* eng, int channels);
 
+/** Master processing gate (bypass when 0). Default on. */
+DSP_API DspError dsp_set_processing_enabled(DspEngine* eng, int enable);
+DSP_API int      dsp_is_processing_enabled(const DspEngine* eng);
+
+/**
+ * Float interleaved process. in/out may alias.
+ * Applies any pending control-mailbox changes at block start.
+ */
 DSP_API DspError dsp_process(DspEngine* eng, const float* in, float* out, int frames);
+
+/**
+ * In-place PCM16 interleaved process (Resonate / Media3 path).
+ * Converts to float, runs the full pipeline, quantizes back to int16
+ * (with engine dither settings when enabled).
+ */
+DSP_API DspError dsp_process_pcm16(DspEngine* eng, int16_t* interleaved, int frames);
 
 /**
  * SRC then full DSP pipeline. *out_frames is capacity in; written count out.
@@ -136,10 +171,12 @@ DSP_API DspError dsp_eq_enable(DspEngine* eng, int enable);
 DSP_API DspError dsp_eq_set_bands(DspEngine* eng, const DspEqBand* bands, int count);
 DSP_API DspError dsp_eq_set_band(DspEngine* eng, int index, const DspEqBand* band);
 DSP_API int      dsp_eq_band_count(const DspEngine* eng);
+DSP_API int      dsp_eq_is_enabled(const DspEngine* eng);
 
 DSP_API DspError dsp_dvc_set_gain_db(DspEngine* eng, float gain_db);
 DSP_API float    dsp_dvc_get_gain_db(const DspEngine* eng);
 DSP_API DspError dsp_dvc_enable(DspEngine* eng, int enable);
+DSP_API int      dsp_dvc_is_enabled(const DspEngine* eng);
 /**
  * One-pole smoothing on DVC gain changes (avoids zipper noise).
  * enable: non-zero on; time_ms: time constant (typical 10–30; <=0 disables).
@@ -149,20 +186,43 @@ DSP_API DspError dsp_dvc_set_smoothing(DspEngine* eng, int enable, float time_ms
 DSP_API int      dsp_dvc_get_smoothing(const DspEngine* eng);
 DSP_API float    dsp_dvc_get_smoothing_ms(const DspEngine* eng);
 
+/** Separate preamp (linear or dB). Applied before DVC. */
+DSP_API DspError dsp_preamp_set_linear(DspEngine* eng, float linear_gain);
+DSP_API DspError dsp_preamp_set_db(DspEngine* eng, float gain_db);
+DSP_API float    dsp_preamp_get_linear(const DspEngine* eng);
+DSP_API float    dsp_preamp_get_db(const DspEngine* eng);
+
+/**
+ * Phone-speaker delivery: high-pass + optional virtual-bass harmonics.
+ * virtual_bass amount in [0, 1]; ignored when speaker mode is off.
+ */
+DSP_API DspError dsp_speaker_set_enabled(DspEngine* eng, int enable);
+DSP_API int      dsp_speaker_is_enabled(const DspEngine* eng);
+DSP_API DspError dsp_speaker_set_virtual_bass(DspEngine* eng, float amount);
+DSP_API float    dsp_speaker_get_virtual_bass(const DspEngine* eng);
+
 DSP_API DspError dsp_limiter_enable(DspEngine* eng, int enable);
 DSP_API DspError dsp_limiter_set_threshold(DspEngine* eng, float threshold_db);
 DSP_API DspError dsp_limiter_set_release(DspEngine* eng, float release_ms);
 DSP_API DspError dsp_limiter_set_mode(DspEngine* eng, DspLimiterMode mode);
 DSP_API DspError dsp_limiter_set_ceiling(DspEngine* eng, float ceiling_db);
+/** Independent high/low ceilings for DSP_LIMITER_TWOBAND (also updates single ceiling). */
+DSP_API DspError dsp_limiter_set_ceiling_bands(DspEngine* eng, float high_db, float low_db);
 DSP_API DspError dsp_limiter_set_knee_db(DspEngine* eng, float knee_db);
 DSP_API DspError dsp_limiter_set_lookahead_ms(DspEngine* eng, float lookahead_ms);
 DSP_API DspError dsp_limiter_set_attack_ms(DspEngine* eng, float attack_ms);
+/** LR crossover frequency for two-band mode. Safe range [80, 200] Hz. */
+DSP_API DspError dsp_limiter_set_crossover_hz(DspEngine* eng, float freq_hz);
+
 DSP_API float    dsp_limiter_get_threshold(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_release(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_ceiling(const DspEngine* eng);
+DSP_API float    dsp_limiter_get_ceiling_high(const DspEngine* eng);
+DSP_API float    dsp_limiter_get_ceiling_low(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_knee_db(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_lookahead_ms(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_attack_ms(const DspEngine* eng);
+DSP_API float    dsp_limiter_get_crossover_hz(const DspEngine* eng);
 DSP_API DspLimiterMode dsp_limiter_get_mode(const DspEngine* eng);
 DSP_API int      dsp_limiter_is_enabled(const DspEngine* eng);
 DSP_API int      dsp_limiter_get_latency_samples(const DspEngine* eng);
@@ -176,6 +236,9 @@ DSP_API DspError      dsp_dither_enable(DspEngine* eng, int enable);
 DSP_API DspError      dsp_dither_set_mode(DspEngine* eng, DspDitherMode mode);
 DSP_API DspDitherMode dsp_dither_get_mode(const DspEngine* eng);
 DSP_API int           dsp_dither_is_enabled(const DspEngine* eng);
+
+DSP_API DspError dsp_get_stats(DspEngine* eng, DspStats* out);
+DSP_API DspError dsp_reset_stats(DspEngine* eng);
 
 DSP_API int dsp_set_realtime_priority(DspEngine* eng, int priority);
 

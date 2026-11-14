@@ -20,3 +20,16 @@ if(WIN32 AND TARGET dsp_engine)
         COMMENT "Copy dsp_engine.dll next to example"
     )
 endif()
+
+add_executable(dsp_example_playback playback_loop.cpp)
+target_link_libraries(dsp_example_playback PRIVATE ${DSP_LINK_TARGET})
+target_include_directories(dsp_example_playback PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+if(WIN32 AND TARGET dsp_engine)
+    add_custom_command(TARGET dsp_example_playback POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:dsp_engine>
+            $<TARGET_FILE_DIR:dsp_example_playback>
+        COMMENT "Copy dsp_engine.dll next to playback example"
+    )
+endif()

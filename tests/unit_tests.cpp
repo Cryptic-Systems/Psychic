@@ -1,5 +1,5 @@
 /**
- * Unit tests for DSP ENGINE v0.3.2
+ * Unit tests for DSP ENGINE v0.4.0
  */
 
 #include "test_framework.h"
@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstring>
 #include <limits>
+#include <cstdint>
 
 using namespace dsp_test;
 
@@ -32,7 +33,7 @@ static DspEngine* create_engine(int channels = 2, float rate = 48000.f) {
 TEST(version) {
     const char* v = dsp_version();
     EXPECT_TRUE(v != nullptr);
-    EXPECT_TRUE(std::strstr(v, "0.3") != nullptr);
+    EXPECT_TRUE(std::strstr(v, "0.4") != nullptr);
 }
 
 TEST(lifecycle) {
@@ -51,7 +52,6 @@ TEST(invalid_create) {
 
 TEST(dvc_gain) {
     DspEngine* eng = create_engine();
-    /* Default create enables ~15 ms smoothing; disable for instant-gain check. */
     EXPECT_EQ(dsp_dvc_set_smoothing(eng, 0, 0.f), DSP_OK);
     EXPECT_EQ(dsp_dvc_set_gain_db(eng, -6.0f), DSP_OK);
     EXPECT_NEAR(dsp_dvc_get_gain_db(eng), -6.0f, 1e-5);
@@ -68,7 +68,6 @@ TEST(dvc_smoothing) {
     EXPECT_EQ(dsp_dvc_get_smoothing(eng), 1);
     EXPECT_NEAR(dsp_dvc_get_smoothing_ms(eng), 20.f, 1e-3);
     EXPECT_EQ(dsp_dvc_set_gain_db(eng, -6.0f), DSP_OK);
-    /* ~960 samples ≈ 20 ms @ 48 kHz; after one tau gain ≈ 0.63 toward target. */
     const int frames = 1024;
     std::vector<float> in(frames * 2, 1.0f), out(frames * 2);
     EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
@@ -362,6 +361,79 @@ TEST(process_identity) {
     std::vector<float> out(frames * 2);
     EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
     for (int i = 0; i < frames * 2; ++i) EXPECT_NEAR(out[i], in[i], 1e-5);
+    dsp_destroy(eng);
+}
+
+TEST(process_pcm16) {
+    DspEngine* eng = create_engine();
+    dsp_eq_enable(eng, 0);
+    dsp_dvc_set_smoothing(eng, 0, 0.f);
+    dsp_dvc_set_gain_db(eng, 0.f);
+    dsp_limiter_enable(eng, 0);
+    const int frames = 64;
+    std::vector<int16_t> buf(frames * 2, 8000);
+    EXPECT_EQ(dsp_process_pcm16(eng, buf.data(), frames), DSP_OK);
+    EXPECT_NEAR(static_cast<float>(buf[0]), 8000.f, 2.f);
+    dsp_destroy(eng);
+}
+
+TEST(preamp_and_speaker) {
+    DspEngine* eng = create_engine();
+    EXPECT_EQ(dsp_preamp_set_db(eng, -6.f), DSP_OK);
+    EXPECT_NEAR(dsp_preamp_get_db(eng), -6.f, 0.05f);
+    EXPECT_EQ(dsp_speaker_set_enabled(eng, 1), DSP_OK);
+    EXPECT_EQ(dsp_speaker_is_enabled(eng), 1);
+    EXPECT_EQ(dsp_speaker_set_virtual_bass(eng, 0.7f), DSP_OK);
+    EXPECT_NEAR(dsp_speaker_get_virtual_bass(eng), 0.7f, 1e-5);
+    const int frames = 128;
+    std::vector<float> in(frames * 2, 0.2f), out(frames * 2);
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    EXPECT_TRUE(std::isfinite(out[0]));
+    dsp_destroy(eng);
+}
+
+TEST(twoband_limiter) {
+    DspConfig cfg{};
+    cfg.sample_rate = 48000.f; cfg.channels = 2; cfg.max_block = 512;
+    cfg.enable_limiter = 1; cfg.dither_mode = DSP_DITHER_NONE;
+    cfg.limiter_threshold_db = -1.f; cfg.limiter_release_ms = 50.f;
+    cfg.limiter_mode = DSP_LIMITER_TWOBAND;
+    cfg.limiter_ceiling_db = -1.f; cfg.limiter_ceiling_low_db = -0.5f;
+    cfg.crossover_hz = 120.f;
+    DspEngine* eng = dsp_create(&cfg);
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_EQ(dsp_limiter_get_mode(eng), DSP_LIMITER_TWOBAND);
+    EXPECT_NEAR(dsp_limiter_get_crossover_hz(eng), 120.f, 1e-3);
+    const int frames = 256;
+    std::vector<float> in(frames * 2, 0.95f), out(frames * 2);
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    float peak = 0.f;
+    for (float s : out) { float a = std::fabs(s); if (a > peak) peak = a; }
+    EXPECT_LT(peak, 0.95f);
+    dsp_destroy(eng);
+}
+
+TEST(processing_bypass) {
+    DspEngine* eng = create_engine();
+    EXPECT_EQ(dsp_set_processing_enabled(eng, 0), DSP_OK);
+    const int frames = 64;
+    std::vector<float> in(frames * 2), out(frames * 2);
+    for (int i = 0; i < frames * 2; ++i) in[i] = (i % 7) * 0.01f;
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    for (int i = 0; i < frames * 2; ++i) EXPECT_NEAR(out[i], in[i], 1e-5);
+    dsp_destroy(eng);
+}
+
+TEST(stats_api) {
+    DspEngine* eng = create_engine();
+    const int frames = 128;
+    std::vector<float> in(frames * 2, 0.1f), out(frames * 2);
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    DspStats st{};
+    EXPECT_EQ(dsp_get_stats(eng, &st), DSP_OK);
+    EXPECT_GT(st.process_calls, 0);
+    EXPECT_EQ(dsp_reset_stats(eng), DSP_OK);
     dsp_destroy(eng);
 }
 

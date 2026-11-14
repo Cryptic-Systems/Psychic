@@ -24,12 +24,26 @@ public:
     float gain_linear() const { return current_lin_; }
 
     void set_smoothing(bool on, float time_ms, float sample_rate) {
-        smooth_ = on;
-        if (time_ms <= 0.f || sample_rate <= 0.f) {
+        smooth_ = on && time_ms > 0.f;
+        time_ms_ = time_ms > 0.f ? time_ms : 0.f;
+        sample_rate_ = sample_rate > 0.f ? sample_rate : sample_rate_;
+        update_coeff();
+    }
+
+    void set_sample_rate(float sample_rate) {
+        if (sample_rate > 0.f) sample_rate_ = sample_rate;
+        update_coeff();
+    }
+
+    bool smoothing() const { return smooth_; }
+    float smoothing_ms() const { return time_ms_; }
+
+    void update_coeff() {
+        if (!smooth_ || time_ms_ <= 0.f || sample_rate_ <= 0.f) {
             coeff_ = 1.f;
             return;
         }
-        coeff_ = 1.f - std::exp(-1.f / (0.001f * time_ms * sample_rate));
+        coeff_ = 1.f - std::exp(-1.f / (0.001f * time_ms_ * sample_rate_));
         if (coeff_ < 0.f) coeff_ = 0.f;
         if (coeff_ > 1.f) coeff_ = 1.f;
     }
@@ -75,6 +89,8 @@ public:
 private:
     bool  enabled_     = true;
     bool  smooth_      = false;
+    float time_ms_     = 0.f;
+    float sample_rate_ = 48000.f;
     float target_db_   = 0.f;
     float target_lin_  = 1.f;
     float current_lin_ = 1.f;

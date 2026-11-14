@@ -222,6 +222,31 @@ TEST(process_silence) {
     dsp_destroy(eng);
 }
 
+TEST(process_large_block) {
+    /* frames > max_block must still succeed (auto-chunk). */
+    DspConfig cfg{};
+    cfg.sample_rate = 48000.f;
+    cfg.channels = 2;
+    cfg.max_block = 128;
+    cfg.enable_eq = 0;
+    cfg.enable_dvc = 1;
+    cfg.enable_limiter = 0;
+    cfg.enable_dither = 0;
+    cfg.dither_mode = DSP_DITHER_NONE;
+    cfg.limiter_threshold_db = -1.f;
+    cfg.limiter_release_ms = 50.f;
+    DspEngine* eng = dsp_create(&cfg);
+    EXPECT_TRUE(eng != nullptr);
+    dsp_dvc_set_gain_db(eng, 0.f);
+    const int frames = 500; /* > 128 */
+    std::vector<float> in(frames * 2), out(frames * 2);
+    for (int i = 0; i < frames * 2; ++i) in[i] = 0.25f;
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    EXPECT_NEAR(out[0], 0.25f, 1e-5);
+    EXPECT_NEAR(out[(frames - 1) * 2], 0.25f, 1e-5);
+    dsp_destroy(eng);
+}
+
 TEST(process_identity) {
     DspEngine* eng = create_engine();
     dsp_eq_enable(eng, 0);

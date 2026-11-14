@@ -1,6 +1,6 @@
 # DSP ENGINE
 
-Highly optimized **64-bit** audio processing engine for Flutter music players and native apps.
+Highly optimized 64-bit audio processing engine for Flutter music players and native apps.
 
 **Version 0.3.2** — cross-platform with AAudio (Android), WASAPI (Windows) and Core Audio (macOS/iOS).
 
@@ -18,8 +18,14 @@ Highly optimized **64-bit** audio processing engine for Flutter music players an
   - Android → AAudio (low-latency / exclusive)
   - Windows → WASAPI (shared + exclusive)
   - macOS / iOS → Core Audio (RemoteIO / Default Output)
+  - Linux → ALSA (optional)
 - **C ABI** + Flutter `dart:ffi` bindings
 - **Unit tests + benchmarks** + GitHub Actions CI matrix
+
+## Processing notes
+
+- `dsp_process` **auto-chunks** buffers larger than `max_block` (set in `DspConfig`, default often 1024). You can pass long offline buffers without manual splitting.
+- For live I/O, keep the backend callback realtime-safe: no heap alloc, locks, or blocking I/O inside the render callback.
 
 ## Quick start (CMake)
 
@@ -28,49 +34,24 @@ cmake -B build -DDSP_BUILD_TESTS=ON -DDSP_BUILD_EXAMPLES=ON
 cmake --build build -j
 ctest --test-dir build --output-on-failure
 ./build/tests/benchmarks
+./build/examples/dsp_example_offline
+./build/examples/dsp_example_playback   # live I/O when a device is available
 ```
 
-Backends are **auto-enabled** on the matching host OS. For cross-compiles pass the options explicitly:
-
-```bash
--DDSP_BACKEND_AAUDIO=ON      # Android
--DDSP_BACKEND_WASAPI=ON      # Windows
--DDSP_BACKEND_COREAUDIO=ON   # Apple
-```
-
-## Flutter
-
-See `bindings/flutter/dsp_engine/`. The Android `build.gradle` already enables the AAudio backend.
-
-```dart
-final engine = DspEngine.create(sampleRate: 48000, channels: 2);
-engine.setEqBands([...]);
-engine.process(input, output);
-```
-
-## Public C API (excerpt)
+## Minimal playback pattern
 
 ```c
-DspEngine* dsp_create(const DspConfig* cfg);
-DspError   dsp_process(DspEngine* eng, const float* in, float* out, int frames);
-DspError   dsp_process_src(...);
-DspError   dsp_eq_set_bands(...);
-DspError   dsp_dvc_set_gain_db(...);
-DspError   dsp_limiter_enable(...);
-DspError   dsp_dither_set_mode(...);
-
-// Optional platform output
-DspBackend* dsp_backend_create(void);
-DspError    dsp_backend_open(...);
-DspError    dsp_backend_start(..., DspRenderCallback cb, void* user);
+DspEngine* eng = dsp_create(&cfg);
+DspBackend* be = dsp_backend_create();
+dsp_backend_open(be, &bcfg);
+dsp_backend_start(be, my_render_cb, user);  /* callback calls dsp_process */
+/* ... */
+dsp_backend_stop(be);
+dsp_backend_destroy(be);
+dsp_destroy(eng);
 ```
 
-## Roadmap (remaining)
-
-- ALSA / PipeWire backends for Linux
-- More sophisticated HQ SRC (polyphase)
-- SIMD-accelerated EQ & limiter paths
-- Flutter example app polish
+See `examples/playback_loop.cpp` for a full sine → DVC → limiter → backend example.
 
 ## License
 

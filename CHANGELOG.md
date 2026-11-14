@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.0] — 2026-11-14
+
+### Resonate integration surface
+- `dsp_process_pcm16` in-place PCM16 path for Media3 / JNI
+- Lock-free control mailbox (setters safe from UI thread; applied at process)
+- Preamp (linear / dB) independent of DVC
+- Speaker mode + virtual bass
+- Two-band limiter (`DSP_LIMITER_TWOBAND`) with LR crossover + dual ceilings
+- Master `dsp_set_processing_enabled` bypass
+- `DspStats` process/CPU diagnostics
+- Pipeline: EQ → speaker/VB → preamp → DVC → limiter → dither
+
+### Tests
+- 34 unit tests covering PCM16, preamp/speaker, two-band, bypass, stats
+
 ## [0.3.2] — 2026-10-26
 
 ### Added

@@ -51,12 +51,30 @@ TEST(invalid_create) {
 
 TEST(dvc_gain) {
     DspEngine* eng = create_engine();
+    /* Default create enables ~15 ms smoothing; disable for instant-gain check. */
+    EXPECT_EQ(dsp_dvc_set_smoothing(eng, 0, 0.f), DSP_OK);
     EXPECT_EQ(dsp_dvc_set_gain_db(eng, -6.0f), DSP_OK);
     EXPECT_NEAR(dsp_dvc_get_gain_db(eng), -6.0f, 1e-5);
     const int frames = 256;
     std::vector<float> in(frames * 2, 0.5f), out(frames * 2);
     EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
     EXPECT_NEAR(out[0], 0.5f * 0.501187f, 0.01f);
+    dsp_destroy(eng);
+}
+
+TEST(dvc_smoothing) {
+    DspEngine* eng = create_engine();
+    EXPECT_EQ(dsp_dvc_set_smoothing(eng, 1, 20.f), DSP_OK);
+    EXPECT_EQ(dsp_dvc_get_smoothing(eng), 1);
+    EXPECT_NEAR(dsp_dvc_get_smoothing_ms(eng), 20.f, 1e-3);
+    EXPECT_EQ(dsp_dvc_set_gain_db(eng, -6.0f), DSP_OK);
+    /* ~960 samples ≈ 20 ms @ 48 kHz; after one tau gain ≈ 0.63 toward target. */
+    const int frames = 1024;
+    std::vector<float> in(frames * 2, 1.0f), out(frames * 2);
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    EXPECT_GT(out[0], 0.95f);
+    EXPECT_LT(out[(frames - 1) * 2], 0.75f);
+    EXPECT_GT(out[(frames - 1) * 2], 0.55f);
     dsp_destroy(eng);
 }
 

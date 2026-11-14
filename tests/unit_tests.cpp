@@ -158,6 +158,84 @@ TEST(src_pipeline) {
     dsp_destroy(eng);
 }
 
+TEST(limiter_lookahead_mode_api) {
+    DspEngine* eng = create_engine();
+    EXPECT_EQ(dsp_limiter_set_mode(eng, DSP_LIMITER_LOOKAHEAD), DSP_OK);
+    EXPECT_EQ(dsp_limiter_get_mode(eng), DSP_LIMITER_LOOKAHEAD);
+    EXPECT_EQ(dsp_limiter_set_ceiling(eng, -1.0f), DSP_OK);
+    EXPECT_NEAR(dsp_limiter_get_ceiling(eng), -1.0f, 1e-5);
+    EXPECT_EQ(dsp_limiter_set_lookahead_ms(eng, 2.0f), DSP_OK);
+    EXPECT_NEAR(dsp_limiter_get_lookahead_ms(eng), 2.0f, 1e-5);
+    EXPECT_EQ(dsp_limiter_set_attack_ms(eng, 0.1f), DSP_OK);
+    EXPECT_GT(dsp_limiter_get_latency_samples(eng), 0);
+    dsp_limiter_enable(eng, 0);
+    EXPECT_EQ(dsp_limiter_get_latency_samples(eng), 0);
+    dsp_destroy(eng);
+}
+
+TEST(limiter_lookahead_brickwall) {
+    DspConfig cfg{};
+    cfg.sample_rate = 48000.f;
+    cfg.channels = 2;
+    cfg.max_block = 1024;
+    cfg.enable_eq = 0;
+    cfg.enable_dvc = 0;
+    cfg.enable_limiter = 1;
+    cfg.enable_dither = 0;
+    cfg.dither_mode = DSP_DITHER_NONE;
+    cfg.limiter_threshold_db = -1.0f;
+    cfg.limiter_release_ms = 50.f;
+    DspEngine* eng = dsp_create(&cfg);
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_EQ(dsp_limiter_set_mode(eng, DSP_LIMITER_LOOKAHEAD), DSP_OK);
+    EXPECT_EQ(dsp_limiter_set_ceiling(eng, -1.0f), DSP_OK);
+    EXPECT_EQ(dsp_limiter_set_lookahead_ms(eng, 2.0f), DSP_OK);
+    EXPECT_EQ(dsp_limiter_set_attack_ms(eng, 0.05f), DSP_OK);
+    dsp_limiter_enable(eng, 1);
+
+    const int L = dsp_limiter_get_latency_samples(eng);
+    EXPECT_GT(L, 0);
+
+    const int frames = 512;
+    std::vector<float> in(frames * 2, 0.f), out(frames * 2, 0.f);
+    in[100 * 2] = 2.0f;
+    in[100 * 2 + 1] = 2.0f;
+    EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+
+    const float ceil_lin = std::pow(10.0f, -1.0f / 20.0f);
+    float peak = 0.f;
+    for (float s : out) {
+        float a = std::fabs(s);
+        if (a > peak) peak = a;
+    }
+    EXPECT_LT(peak, ceil_lin + 0.02f);
+
+    int peak_i = 0;
+    float peak_at = 0.f;
+    for (int i = 0; i < frames; ++i) {
+        float a = std::fabs(out[i * 2]);
+        if (a > peak_at) { peak_at = a; peak_i = i; }
+    }
+    if (peak_at > 0.01f) {
+        EXPECT_GE(peak_i, 100 + L - 3);
+        EXPECT_LE(peak_i, 100 + L + 3);
+    }
+    dsp_destroy(eng);
+}
+
+TEST(limiter_lookahead_latency) {
+    DspEngine* eng = create_engine();
+    dsp_limiter_enable(eng, 1);
+    EXPECT_EQ(dsp_limiter_set_mode(eng, DSP_LIMITER_FAST), DSP_OK);
+    EXPECT_EQ(dsp_limiter_get_latency_samples(eng), 0);
+    EXPECT_EQ(dsp_limiter_set_mode(eng, DSP_LIMITER_LOOKAHEAD), DSP_OK);
+    EXPECT_EQ(dsp_limiter_set_lookahead_ms(eng, 1.0f), DSP_OK);
+    int L = dsp_limiter_get_latency_samples(eng);
+    EXPECT_GE(L, 40);
+    EXPECT_LE(L, 56);
+    dsp_destroy(eng);
+}
+
 TEST(limiter_getters) {
     DspEngine* eng = create_engine();
     EXPECT_EQ(dsp_limiter_set_threshold(eng, -3.0f), DSP_OK);
@@ -223,7 +301,6 @@ TEST(process_silence) {
 }
 
 TEST(process_large_block) {
-    /* frames > max_block must still succeed (auto-chunk). */
     DspConfig cfg{};
     cfg.sample_rate = 48000.f;
     cfg.channels = 2;
@@ -238,7 +315,7 @@ TEST(process_large_block) {
     DspEngine* eng = dsp_create(&cfg);
     EXPECT_TRUE(eng != nullptr);
     dsp_dvc_set_gain_db(eng, 0.f);
-    const int frames = 500; /* > 128 */
+    const int frames = 500;
     std::vector<float> in(frames * 2), out(frames * 2);
     for (int i = 0; i < frames * 2; ++i) in[i] = 0.25f;
     EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);

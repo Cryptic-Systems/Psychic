@@ -74,6 +74,12 @@ typedef struct {
     DspDitherMode dither_mode;
     float limiter_threshold_db;
     float limiter_release_ms;
+    /* Optional limiter create-time fields (0 / FAST = defaults where noted) */
+    DspLimiterMode limiter_mode;     /* default FAST */
+    float limiter_ceiling_db;        /* 0 dB if zero-init; prefer -0.1 / -1 for streaming */
+    float limiter_knee_db;           /* 0 = hard knee */
+    float limiter_attack_ms;         /* <=0 → 0.1 ms */
+    float limiter_lookahead_ms;      /* 0 → 2 ms when LOOKAHEAD/TRUEPEAK */
 } DspConfig;
 
 typedef struct {
@@ -121,6 +127,8 @@ DSP_API DspError dsp_dvc_enable(DspEngine* eng, int enable);
  * - threshold_db: where gain reduction begins (with soft knee, center of knee)
  * - ceiling_db: hard maximum output level (independent of threshold)
  * - knee_db: soft-knee width in dB (0 = hard knee; typical 3–6)
+ * - attack_ms / release_ms: gain smoothing
+ * Can be set at create via DspConfig or later via these setters.
  */
 DSP_API DspError dsp_limiter_enable(DspEngine* eng, int enable);
 DSP_API DspError dsp_limiter_set_threshold(DspEngine* eng, float threshold_db);

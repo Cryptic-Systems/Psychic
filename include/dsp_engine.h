@@ -116,26 +116,31 @@ DSP_API DspError dsp_dvc_set_gain_db(DspEngine* eng, float gain_db);
 DSP_API float    dsp_dvc_get_gain_db(const DspEngine* eng);
 DSP_API DspError dsp_dvc_enable(DspEngine* eng, int enable);
 
+/**
+ * Limiter parameters:
+ * - threshold_db: where gain reduction begins (with soft knee, center of knee)
+ * - ceiling_db: hard maximum output level (independent of threshold)
+ * - knee_db: soft-knee width in dB (0 = hard knee; typical 3–6)
+ */
 DSP_API DspError dsp_limiter_enable(DspEngine* eng, int enable);
 DSP_API DspError dsp_limiter_set_threshold(DspEngine* eng, float threshold_db);
 DSP_API DspError dsp_limiter_set_release(DspEngine* eng, float release_ms);
 DSP_API DspError dsp_limiter_set_mode(DspEngine* eng, DspLimiterMode mode);
 DSP_API DspError dsp_limiter_set_ceiling(DspEngine* eng, float ceiling_db);
+DSP_API DspError dsp_limiter_set_knee_db(DspEngine* eng, float knee_db);
 DSP_API DspError dsp_limiter_set_lookahead_ms(DspEngine* eng, float lookahead_ms);
 DSP_API DspError dsp_limiter_set_attack_ms(DspEngine* eng, float attack_ms);
 DSP_API float    dsp_limiter_get_threshold(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_release(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_ceiling(const DspEngine* eng);
+DSP_API float    dsp_limiter_get_knee_db(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_lookahead_ms(const DspEngine* eng);
 DSP_API float    dsp_limiter_get_attack_ms(const DspEngine* eng);
 DSP_API DspLimiterMode dsp_limiter_get_mode(const DspEngine* eng);
 DSP_API int      dsp_limiter_is_enabled(const DspEngine* eng);
-/** Lookahead delay in samples (0 in FAST mode). For A/V sync. */
 DSP_API int      dsp_limiter_get_latency_samples(const DspEngine* eng);
-/** Instantaneous gain reduction in dB (>= 0). */
 DSP_API float    dsp_limiter_get_gr_db(const DspEngine* eng);
 
-/** Dither: TPDF/SHAPED noise then quantize to 16-bit PCM levels (float domain). */
 DSP_API DspError      dsp_dither_enable(DspEngine* eng, int enable);
 DSP_API DspError      dsp_dither_set_mode(DspEngine* eng, DspDitherMode mode);
 DSP_API DspDitherMode dsp_dither_get_mode(const DspEngine* eng);
@@ -143,7 +148,6 @@ DSP_API int           dsp_dither_is_enabled(const DspEngine* eng);
 
 DSP_API int dsp_set_realtime_priority(DspEngine* eng, int priority);
 
-/* Backend: AAudio / WASAPI / Core Audio / ALSA. Null device: start → UNSUPPORTED. */
 typedef struct DspBackend DspBackend;
 typedef struct {
     int sample_rate;

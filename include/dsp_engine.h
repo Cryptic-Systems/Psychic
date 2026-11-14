@@ -56,9 +56,9 @@ typedef enum {
 } DspDitherMode;
 
 typedef enum {
-    DSP_LIMITER_FAST = 0,       /* zero-latency envelope limiter */
-    DSP_LIMITER_LOOKAHEAD = 1,  /* brickwall with delay-line lookahead */
-    DSP_LIMITER_TRUEPEAK = 2    /* 4x oversampled true-peak + lookahead (streaming-safe) */
+    DSP_LIMITER_FAST = 0,
+    DSP_LIMITER_LOOKAHEAD = 1,
+    DSP_LIMITER_TRUEPEAK = 2
 } DspLimiterMode;
 
 typedef struct DspEngine DspEngine;
@@ -74,20 +74,31 @@ typedef struct {
     DspDitherMode dither_mode;
     float limiter_threshold_db;
     float limiter_release_ms;
-    /* Optional limiter create-time fields (0 / FAST = defaults where noted) */
-    DspLimiterMode limiter_mode;     /* default FAST */
-    float limiter_ceiling_db;        /* 0 dB if zero-init; prefer -0.1 / -1 for streaming */
-    float limiter_knee_db;           /* 0 = hard knee */
-    float limiter_attack_ms;         /* <=0 → 0.1 ms */
-    float limiter_lookahead_ms;      /* 0 → 2 ms when LOOKAHEAD/TRUEPEAK */
+    DspLimiterMode limiter_mode;
+    float limiter_ceiling_db;
+    float limiter_knee_db;
+    float limiter_attack_ms;
+    float limiter_lookahead_ms;
 } DspConfig;
 
 typedef struct {
     float freq_hz;
     float gain_db;
     float q;
-    int type; /* 0=peak, 1=low_shelf, 2=high_shelf, 3=low_pass, 4=high_pass */
+    int type;
 } DspEqBand;
+
+/**
+ * Gain-reduction metering for UI.
+ * gr_db: instantaneous GR in dB (>= 0).
+ * gr_peak_db: peak-hold GR in dB (slow decay, good for meters).
+ * active: 1 if instantaneous GR > ~0.1 dB.
+ */
+typedef struct {
+    float gr_db;
+    float gr_peak_db;
+    int   active;
+} DspLimiterMeter;
 
 DSP_API const char* dsp_version(void);
 DSP_API DspEngine* dsp_create(const DspConfig* cfg);
@@ -96,18 +107,7 @@ DSP_API DspError   dsp_reset(DspEngine* eng);
 DSP_API DspError   dsp_set_sample_rate(DspEngine* eng, float rate);
 DSP_API DspError   dsp_set_channels(DspEngine* eng, int channels);
 
-/**
- * Process interleaved float32 audio.
- * Frames larger than eng max_block are processed in max_block-sized chunks
- * automatically. Returns DSP_ERR_INVALID_ARG if eng/in/out are null or frames < 1.
- */
 DSP_API DspError dsp_process(DspEngine* eng, const float* in, float* out, int frames);
-
-/**
- * Sample-rate conversion followed by the full DSP pipeline
- * (EQ → DVC → limiter → dither).
- * ratio ≈ source_rate / destination_rate (< 1 upsamples, > 1 downsamples).
- */
 DSP_API DspError dsp_process_src(DspEngine* eng,
                                  const float* in, int in_frames,
                                  float* out, int* out_frames,
@@ -122,14 +122,6 @@ DSP_API DspError dsp_dvc_set_gain_db(DspEngine* eng, float gain_db);
 DSP_API float    dsp_dvc_get_gain_db(const DspEngine* eng);
 DSP_API DspError dsp_dvc_enable(DspEngine* eng, int enable);
 
-/**
- * Limiter parameters:
- * - threshold_db: where gain reduction begins (with soft knee, center of knee)
- * - ceiling_db: hard maximum output level (independent of threshold)
- * - knee_db: soft-knee width in dB (0 = hard knee; typical 3–6)
- * - attack_ms / release_ms: gain smoothing
- * Can be set at create via DspConfig or later via these setters.
- */
 DSP_API DspError dsp_limiter_enable(DspEngine* eng, int enable);
 DSP_API DspError dsp_limiter_set_threshold(DspEngine* eng, float threshold_db);
 DSP_API DspError dsp_limiter_set_release(DspEngine* eng, float release_ms);
@@ -147,7 +139,11 @@ DSP_API float    dsp_limiter_get_attack_ms(const DspEngine* eng);
 DSP_API DspLimiterMode dsp_limiter_get_mode(const DspEngine* eng);
 DSP_API int      dsp_limiter_is_enabled(const DspEngine* eng);
 DSP_API int      dsp_limiter_get_latency_samples(const DspEngine* eng);
+
 DSP_API float    dsp_limiter_get_gr_db(const DspEngine* eng);
+DSP_API float    dsp_limiter_get_gr_peak_db(const DspEngine* eng);
+DSP_API DspError dsp_limiter_get_meter(const DspEngine* eng, DspLimiterMeter* out);
+DSP_API DspError dsp_limiter_reset_meters(DspEngine* eng);
 
 DSP_API DspError      dsp_dither_enable(DspEngine* eng, int enable);
 DSP_API DspError      dsp_dither_set_mode(DspEngine* eng, DspDitherMode mode);

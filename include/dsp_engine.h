@@ -57,7 +57,8 @@ typedef enum {
 
 typedef enum {
     DSP_LIMITER_FAST = 0,       /* zero-latency envelope limiter */
-    DSP_LIMITER_LOOKAHEAD = 1   /* brickwall with delay-line lookahead */
+    DSP_LIMITER_LOOKAHEAD = 1,  /* brickwall with delay-line lookahead */
+    DSP_LIMITER_TRUEPEAK = 2    /* 4x oversampled true-peak + lookahead (streaming-safe) */
 } DspLimiterMode;
 
 typedef struct DspEngine DspEngine;

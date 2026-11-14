@@ -6,6 +6,18 @@
  * and optional platform audio backends (AAudio / WASAPI / Core Audio / ALSA).
  *
  * Version 0.3.2
+ *
+ * THREAD SAFETY
+ * -------------
+ * dsp_process / dsp_process_src must run on a single audio thread.
+ * Control calls (set_*, enable, eq_set_*, limiter_*, dvc_*, reset) are NOT
+ * synchronized with process — do not call them concurrently with process.
+ * Meter getters (get_gr_*, get_meter) may be read from a UI thread; values are
+ * best-effort snapshots (may tear slightly under concurrent process).
+ *
+ * DVC gain changes are instant unless dsp_dvc_set_smoothing() is enabled
+ * (recommended ~10–30 ms to avoid clicks). When enable_dvc is set at create,
+ * ~15 ms smoothing is applied by default.
  */
 
 #ifndef DSP_ENGINE_H
@@ -108,6 +120,13 @@ DSP_API DspError   dsp_set_sample_rate(DspEngine* eng, float rate);
 DSP_API DspError   dsp_set_channels(DspEngine* eng, int channels);
 
 DSP_API DspError dsp_process(DspEngine* eng, const float* in, float* out, int frames);
+
+/**
+ * SRC then full DSP pipeline. *out_frames is capacity in; written count out.
+ * Size out for at least ceil(in_frames / ratio) + 8 frames (more if upsampling).
+ * Returns DSP_ERR_OVERFLOW if out is too small to consume all input (partial
+ * written samples are still valid and are DSP-processed).
+ */
 DSP_API DspError dsp_process_src(DspEngine* eng,
                                  const float* in, int in_frames,
                                  float* out, int* out_frames,
@@ -121,6 +140,14 @@ DSP_API int      dsp_eq_band_count(const DspEngine* eng);
 DSP_API DspError dsp_dvc_set_gain_db(DspEngine* eng, float gain_db);
 DSP_API float    dsp_dvc_get_gain_db(const DspEngine* eng);
 DSP_API DspError dsp_dvc_enable(DspEngine* eng, int enable);
+/**
+ * One-pole smoothing on DVC gain changes (avoids zipper noise).
+ * enable: non-zero on; time_ms: time constant (typical 10–30; <=0 disables).
+ * Coeff is tied to the engine sample rate (recomputed on set_sample_rate).
+ */
+DSP_API DspError dsp_dvc_set_smoothing(DspEngine* eng, int enable, float time_ms);
+DSP_API int      dsp_dvc_get_smoothing(const DspEngine* eng);
+DSP_API float    dsp_dvc_get_smoothing_ms(const DspEngine* eng);
 
 DSP_API DspError dsp_limiter_enable(DspEngine* eng, int enable);
 DSP_API DspError dsp_limiter_set_threshold(DspEngine* eng, float threshold_db);

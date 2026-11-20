@@ -5,7 +5,7 @@
  * multi-band parametric EQ, true-peak / two-band limiter, preamp, speaker-mode
  * virtual bass, dither, sample-rate conversion, and optional platform backends.
  *
- * Version 0.5.1 — Auto-DVC (short-term RMS) + intelligent headroom / auto-bass
+ * Version 0.6.0 — Full intelligent stack (budget, auto-VB, auto-preamp, crest, silence)
  *
  * THREAD SAFETY
  * -------------
@@ -345,6 +345,69 @@ DSP_API DspError dsp_auto_gain_set_window_ms(DspEngine* eng, float window_ms);
 DSP_API float    dsp_auto_gain_get_window_ms(const DspEngine* eng);
 DSP_API float    dsp_auto_gain_get_applied_db(const DspEngine* eng);
 DSP_API float    dsp_get_short_term_rms_db(const DspEngine* eng);
+
+/* ---------- Extended intelligence (v0.6) ---------- */
+
+/**
+ * Shared headroom budget weights (normalized internally).
+ * bass / preamp / gain share the available headroom so they do not all
+ * spend the full margin independently. Defaults: 0.50 / 0.20 / 0.30.
+ */
+DSP_API DspError dsp_headroom_budget_set(DspEngine* eng,
+                                         float bass_weight,
+                                         float preamp_weight,
+                                         float gain_weight);
+DSP_API DspError dsp_headroom_budget_get(const DspEngine* eng,
+                                         float* bass_weight,
+                                         float* preamp_weight,
+                                         float* gain_weight);
+
+/**
+ * Clip-aware auto-preamp: servos preamp dB toward target, capped by its
+ * share of headroom. Independent of user preamp when disabled.
+ */
+DSP_API DspError dsp_auto_preamp_enable(DspEngine* eng, int enable);
+DSP_API int      dsp_auto_preamp_is_enabled(const DspEngine* eng);
+DSP_API DspError dsp_auto_preamp_set_target_db(DspEngine* eng, float target_db);
+DSP_API float    dsp_auto_preamp_get_target_db(const DspEngine* eng);
+DSP_API float    dsp_auto_preamp_get_applied_db(const DspEngine* eng);
+
+/**
+ * Content-aware virtual bass: scales speaker VB amount from bass-band energy.
+ * When track already has strong sub energy, applied VB is reduced.
+ * target_amount in [0,1] is the maximum when content is bass-light.
+ */
+DSP_API DspError dsp_auto_vb_enable(DspEngine* eng, int enable);
+DSP_API int      dsp_auto_vb_is_enabled(const DspEngine* eng);
+DSP_API DspError dsp_auto_vb_set_target(DspEngine* eng, float target_amount);
+DSP_API float    dsp_auto_vb_get_target(const DspEngine* eng);
+DSP_API float    dsp_auto_vb_get_applied(const DspEngine* eng);
+
+/**
+ * Crest-based limiter personality from offline analysis (or live estimate).
+ * High crest (dynamic) → slightly higher ceiling / slower release.
+ * Low crest (dense) → tighter ceiling / faster release.
+ * Pass crest_db from DspAnalysisResult.crest_db; 0 disables override.
+ */
+DSP_API DspError dsp_limiter_set_crest_hint(DspEngine* eng, float crest_db);
+DSP_API float    dsp_limiter_get_crest_hint(const DspEngine* eng);
+
+/**
+ * Feed offline analysis into the live engine (bass energy, crest, optional
+ * max safe bass). Safe to call from UI thread; applied next process block.
+ */
+DSP_API DspError dsp_apply_analysis_hint(DspEngine* eng, const DspAnalysisResult* analysis,
+                                         float max_safe_bass_db);
+
+/**
+ * Silence hygiene: when short-term RMS stays below threshold for hold_ms,
+ * decay auto-applied gains and ease limiter GR peak-hold. Reduces “stuck”
+ * meters and gain across gaps / track changes.
+ */
+DSP_API DspError dsp_silence_hygiene_enable(DspEngine* eng, int enable);
+DSP_API int      dsp_silence_hygiene_is_enabled(const DspEngine* eng);
+DSP_API DspError dsp_silence_hygiene_set_threshold_db(DspEngine* eng, float rms_db);
+DSP_API DspError dsp_silence_hygiene_set_hold_ms(DspEngine* eng, float hold_ms);
 
 DSP_API int dsp_set_realtime_priority(DspEngine* eng, int priority);
 

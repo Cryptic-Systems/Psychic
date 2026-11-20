@@ -1,5 +1,5 @@
 /**
- * Unit tests for DSP ENGINE v0.5.0
+ * Unit tests for DSP ENGINE v0.5.1
  */
 
 #include "test_framework.h"
@@ -583,6 +583,50 @@ TEST(level_meter_and_auto_bass) {
 
     EXPECT_EQ(dsp_auto_bass_enable(eng, 0), DSP_OK);
     EXPECT_EQ(dsp_reset_level_meters(eng), DSP_OK);
+    dsp_destroy(eng);
+}
+
+
+TEST(auto_gain_rms) {
+    DspEngine* eng = create_engine();
+    EXPECT_EQ(dsp_limiter_enable(eng, 1), DSP_OK);
+    EXPECT_EQ(dsp_limiter_set_ceiling(eng, -0.1f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_set_target_rms_db(eng, -18.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_set_max_boost_db(eng, 12.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_set_max_cut_db(eng, 12.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_set_window_ms(eng, 200.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_enable(eng, 1), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_is_enabled(eng), 1);
+
+    const int frames = 512;
+    std::vector<float> in(frames * 2), out(frames * 2);
+    /* Quiet tone ~ -18 dBFS peak-ish RMS lower */
+    for (int i = 0; i < frames; ++i) {
+        float s = 0.05f * std::sin(2.f * 3.14159265f * 440.f * i / 48000.f);
+        in[i * 2] = s;
+        in[i * 2 + 1] = s;
+    }
+    for (int n = 0; n < 40; ++n)
+        EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+
+    float applied = dsp_auto_gain_get_applied_db(eng);
+    float rms = dsp_get_short_term_rms_db(eng);
+    EXPECT_TRUE(std::isfinite(rms));
+    EXPECT_TRUE(applied > 1.0f); /* quiet → boost toward target */
+
+    DspLevelMeter m{};
+    EXPECT_EQ(dsp_get_level_meter(eng, &m), DSP_OK);
+    EXPECT_TRUE(std::isfinite(m.short_term_rms_db));
+
+    /* Louder input should reduce boost */
+    for (float& s : in) s *= 8.f;
+    for (int n = 0; n < 50; ++n)
+        EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    float applied2 = dsp_auto_gain_get_applied_db(eng);
+    EXPECT_TRUE(applied2 < applied);
+
+    for (float s : out) EXPECT_TRUE(std::isfinite(s));
+    EXPECT_EQ(dsp_auto_gain_enable(eng, 0), DSP_OK);
     dsp_destroy(eng);
 }
 

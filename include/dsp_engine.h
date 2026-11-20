@@ -5,7 +5,7 @@
  * multi-band parametric EQ, true-peak / two-band limiter, preamp, speaker-mode
  * virtual bass, dither, sample-rate conversion, and optional platform backends.
  *
- * Version 0.5.0 — Intelligent headroom / auto-bass surface
+ * Version 0.5.1 — Auto-DVC (short-term RMS) + intelligent headroom / auto-bass
  *
  * THREAD SAFETY
  * -------------
@@ -17,17 +17,19 @@
  * pure and may run on any thread; they do not touch engine state.
  *
  * Pipeline (when processing enabled):
- *   EQ → auto-bass shelf → speaker/VB → preamp → DVC → limiter → dither
+ *   EQ → auto-bass shelf → speaker/VB → preamp → DVC (auto-gain) → limiter → dither
  *
  * DVC gain changes use optional one-pole smoothing (default ~15 ms when DVC is
- * enabled at create).
+ * enabled at create). When auto-gain is enabled it drives DVC toward a short-term
+ * RMS target (with bias / max boost / max cut and headroom clamp).
  *
- * INTELLIGENT BASS
- * ----------------
+ * INTELLIGENT BASS + LEVEL
+ * -----------------------
  * Path A (offline): dsp_analyze_buffer / dsp_probe_max_bass_gain_db measure a
  * buffer's true-peak headroom and the max safe low-shelf gain under a ceiling.
  * Path B (online):  dsp_auto_bass_* servos a dedicated low-shelf so applied
  * boost stays under (ceiling - margin), using running level meters + GR.
+ * Auto-DVC:         dsp_auto_gain_* matches short-term RMS to a target level.
  */
 
 #ifndef DSP_ENGINE_H
@@ -169,6 +171,8 @@ typedef struct {
     float post_eq_peak_db;
     float bass_band_peak_db;
     float headroom_db;
+    /** Short-term RMS (dBFS), ~window set by auto-gain / default ~400 ms. */
+    float short_term_rms_db;
 } DspLevelMeter;
 
 DSP_API const char* dsp_version(void);
@@ -315,6 +319,32 @@ DSP_API float    dsp_auto_bass_get_margin_db(const DspEngine* eng);
 DSP_API DspError dsp_auto_bass_set_freq_hz(DspEngine* eng, float freq_hz);
 DSP_API float    dsp_auto_bass_get_freq_hz(const DspEngine* eng);
 DSP_API float    dsp_auto_bass_get_applied_db(const DspEngine* eng);
+
+/**
+ * Online auto-DVC / auto-gain (item 5): drives DVC so short-term RMS approaches
+ * target_rms_db + bias_db. Boost is further limited by headroom − margin so the
+ * limiter is not forced into constant GR. When enabled, auto-gain owns DVC gain
+ * (manual dsp_dvc_set_gain_db is treated as bias if you also set bias, or is
+ * overwritten each block — prefer bias API while auto-gain is on).
+ *
+ * target_rms_db: typical −20 … −14 dBFS short-term
+ * max_boost_db / max_cut_db: clamp on the correction
+ * window_ms: RMS integration time (200–3000; default 400)
+ */
+DSP_API DspError dsp_auto_gain_enable(DspEngine* eng, int enable);
+DSP_API int      dsp_auto_gain_is_enabled(const DspEngine* eng);
+DSP_API DspError dsp_auto_gain_set_target_rms_db(DspEngine* eng, float target_rms_db);
+DSP_API float    dsp_auto_gain_get_target_rms_db(const DspEngine* eng);
+DSP_API DspError dsp_auto_gain_set_bias_db(DspEngine* eng, float bias_db);
+DSP_API float    dsp_auto_gain_get_bias_db(const DspEngine* eng);
+DSP_API DspError dsp_auto_gain_set_max_boost_db(DspEngine* eng, float max_boost_db);
+DSP_API float    dsp_auto_gain_get_max_boost_db(const DspEngine* eng);
+DSP_API DspError dsp_auto_gain_set_max_cut_db(DspEngine* eng, float max_cut_db);
+DSP_API float    dsp_auto_gain_get_max_cut_db(const DspEngine* eng);
+DSP_API DspError dsp_auto_gain_set_window_ms(DspEngine* eng, float window_ms);
+DSP_API float    dsp_auto_gain_get_window_ms(const DspEngine* eng);
+DSP_API float    dsp_auto_gain_get_applied_db(const DspEngine* eng);
+DSP_API float    dsp_get_short_term_rms_db(const DspEngine* eng);
 
 DSP_API int dsp_set_realtime_priority(DspEngine* eng, int priority);
 

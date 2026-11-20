@@ -1,5 +1,5 @@
 /**
- * Unit tests for DSP ENGINE v0.4.0
+ * Unit tests for DSP ENGINE v0.5.0
  */
 
 #include "test_framework.h"
@@ -33,7 +33,7 @@ static DspEngine* create_engine(int channels = 2, float rate = 48000.f) {
 TEST(version) {
     const char* v = dsp_version();
     EXPECT_TRUE(v != nullptr);
-    EXPECT_TRUE(std::strstr(v, "0.4") != nullptr);
+    EXPECT_TRUE(std::strstr(v, "0.5") != nullptr);
 }
 
 TEST(lifecycle) {
@@ -511,5 +511,79 @@ TEST(eq_31_bands_full_params) {
     dsp_destroy(eng);
 }
 
+
+
+TEST(analyze_buffer) {
+    const int frames = 2048;
+    const int ch = 2;
+    std::vector<float> buf(frames * ch);
+    for (int i = 0; i < frames; ++i) {
+        float s = 0.5f * std::sin(2.f * 3.14159265f * 100.f * i / 48000.f);
+        buf[i * 2] = s;
+        buf[i * 2 + 1] = s;
+    }
+    DspAnalysisResult r{};
+    EXPECT_EQ(dsp_analyze_buffer(buf.data(), frames, ch, 48000.f, &r), DSP_OK);
+    EXPECT_NEAR(r.sample_peak_db, -6.0f, 0.5f);
+    EXPECT_TRUE(r.true_peak_db >= r.sample_peak_db - 0.1f);
+    EXPECT_TRUE(r.crest_db > 0.f);
+    EXPECT_TRUE(std::isfinite(r.bass_energy_db));
+
+    float max_g = 0.f;
+    EXPECT_EQ(dsp_probe_max_bass_gain_db(buf.data(), frames, ch, 48000.f,
+                                         80.f, -0.1f, 1.0f, &max_g), DSP_OK);
+    EXPECT_TRUE(max_g > 0.f);
+    EXPECT_TRUE(max_g < 24.f);
+
+    for (float& s : buf) s = 0.95f;
+    EXPECT_EQ(dsp_probe_max_bass_gain_db(buf.data(), frames, ch, 48000.f,
+                                         80.f, -0.1f, 1.0f, &max_g), DSP_OK);
+    EXPECT_TRUE(max_g < 1.0f);
+}
+
+TEST(level_meter_and_auto_bass) {
+    DspEngine* eng = create_engine();
+    EXPECT_EQ(dsp_limiter_enable(eng, 1), DSP_OK);
+    EXPECT_EQ(dsp_limiter_set_ceiling(eng, -0.1f), DSP_OK);
+    EXPECT_EQ(dsp_auto_bass_set_margin_db(eng, 1.0f), DSP_OK);
+    EXPECT_EQ(dsp_auto_bass_set_freq_hz(eng, 80.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_bass_set_target_db(eng, 6.0f), DSP_OK);
+    EXPECT_EQ(dsp_auto_bass_enable(eng, 1), DSP_OK);
+    EXPECT_EQ(dsp_auto_bass_is_enabled(eng), 1);
+
+    const int frames = 512;
+    std::vector<float> in(frames * 2), out(frames * 2);
+    for (int i = 0; i < frames; ++i) {
+        float s = 0.25f * std::sin(2.f * 3.14159265f * 60.f * i / 48000.f);
+        in[i * 2] = s;
+        in[i * 2 + 1] = s;
+    }
+    for (int n = 0; n < 20; ++n)
+        EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+
+    DspLevelMeter m{};
+    EXPECT_EQ(dsp_get_level_meter(eng, &m), DSP_OK);
+    EXPECT_TRUE(m.in_peak_db > -30.f);
+    EXPECT_TRUE(std::isfinite(m.headroom_db));
+    EXPECT_TRUE(std::isfinite(m.post_eq_peak_db));
+
+    float applied = dsp_auto_bass_get_applied_db(eng);
+    EXPECT_TRUE(applied > 0.5f);
+    EXPECT_TRUE(applied <= 6.5f);
+
+    for (float& s : in) s *= 3.5f;
+    for (int n = 0; n < 30; ++n)
+        EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    float applied_loud = dsp_auto_bass_get_applied_db(eng);
+    EXPECT_TRUE(applied_loud < applied + 0.1f);
+
+    for (float s : out)
+        EXPECT_TRUE(std::isfinite(s));
+    EXPECT_TRUE(std::fabs(out[0]) <= 1.05f);
+
+    EXPECT_EQ(dsp_auto_bass_enable(eng, 0), DSP_OK);
+    EXPECT_EQ(dsp_reset_level_meters(eng), DSP_OK);
+    dsp_destroy(eng);
+}
 
 int main() { return run_all(); }

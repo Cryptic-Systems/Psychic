@@ -1,5 +1,5 @@
 /**
- * Unit tests for DSP ENGINE v0.5.1
+ * Unit tests for DSP ENGINE v0.6.0
  */
 
 #include "test_framework.h"
@@ -33,7 +33,7 @@ static DspEngine* create_engine(int channels = 2, float rate = 48000.f) {
 TEST(version) {
     const char* v = dsp_version();
     EXPECT_TRUE(v != nullptr);
-    EXPECT_TRUE(std::strstr(v, "0.5") != nullptr);
+    EXPECT_TRUE(std::strstr(v, "0.6") != nullptr);
 }
 
 TEST(lifecycle) {
@@ -627,6 +627,40 @@ TEST(auto_gain_rms) {
 
     for (float s : out) EXPECT_TRUE(std::isfinite(s));
     EXPECT_EQ(dsp_auto_gain_enable(eng, 0), DSP_OK);
+    dsp_destroy(eng);
+}
+
+
+TEST(headroom_budget_and_hints) {
+    DspEngine* eng = create_engine();
+    EXPECT_EQ(dsp_headroom_budget_set(eng, 0.6f, 0.2f, 0.2f), DSP_OK);
+    float b, p, g;
+    EXPECT_EQ(dsp_headroom_budget_get(eng, &b, &p, &g), DSP_OK);
+    EXPECT_NEAR(b, 0.6f, 1e-4f);
+
+    EXPECT_EQ(dsp_auto_preamp_set_target_db(eng, 3.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_preamp_enable(eng, 1), DSP_OK);
+    EXPECT_EQ(dsp_auto_vb_set_target(eng, 0.7f), DSP_OK);
+    EXPECT_EQ(dsp_speaker_set_enabled(eng, 1), DSP_OK);
+    EXPECT_EQ(dsp_auto_vb_enable(eng, 1), DSP_OK);
+    EXPECT_EQ(dsp_silence_hygiene_enable(eng, 1), DSP_OK);
+
+    DspAnalysisResult ar{};
+    ar.sample_peak_db = -3.f;
+    ar.true_peak_db = -2.5f;
+    ar.rms_db = -14.f;
+    ar.crest_db = 11.f;
+    ar.bass_energy_db = -25.f;
+    EXPECT_EQ(dsp_apply_analysis_hint(eng, &ar, 5.0f), DSP_OK);
+    EXPECT_NEAR(dsp_limiter_get_crest_hint(eng), 11.f, 1e-3f);
+
+    const int frames = 512;
+    std::vector<float> in(frames * 2, 0.1f), out(frames * 2);
+    for (int n = 0; n < 10; ++n)
+        EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    EXPECT_TRUE(std::isfinite(dsp_auto_preamp_get_applied_db(eng)));
+    EXPECT_TRUE(dsp_auto_vb_get_applied(eng) >= 0.f);
+    for (float s : out) EXPECT_TRUE(std::isfinite(s));
     dsp_destroy(eng);
 }
 

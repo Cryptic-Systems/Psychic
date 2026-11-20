@@ -798,6 +798,13 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
             * (desired - eng->auto_preamp_applied_db);
         eng->preamp_linear = static_cast<float>(
             std::pow(10.0, eng->auto_preamp_applied_db * 0.05));
+    } else if (std::fabs(eng->auto_preamp_applied_db) > 0.01f) {
+        /* Fade out sticky auto-preamp when disabled (manual preamp can re-apply). */
+        eng->auto_preamp_applied_db *= (1.f - eng->auto_bass_smooth);
+        if (std::fabs(eng->auto_preamp_applied_db) < 0.01f)
+            eng->auto_preamp_applied_db = 0.f;
+        eng->preamp_linear = static_cast<float>(
+            std::pow(10.0, eng->auto_preamp_applied_db * 0.05));
     }
     if (eng->preamp_linear != 1.f && eng->preamp_linear > 0.f) {
         const sample_t g = static_cast<sample_t>(eng->preamp_linear);

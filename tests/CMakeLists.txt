@@ -25,6 +25,17 @@ if(WIN32 AND TARGET dsp_engine)
 endif()
 
 add_test(NAME unit_tests COMMAND unit_tests)
+
+add_executable(adaptive_controller_tests
+    adaptive_controller_tests.cpp
+)
+target_include_directories(adaptive_controller_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+if(NOT MSVC)
+    target_compile_options(adaptive_controller_tests PRIVATE -fexceptions -frtti)
+endif()
+add_test(NAME adaptive_controller_tests COMMAND adaptive_controller_tests)
 set_tests_properties(unit_tests PROPERTIES TIMEOUT 30)
 
 add_executable(benchmarks

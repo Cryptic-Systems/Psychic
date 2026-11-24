@@ -175,7 +175,6 @@ int main(int argc, char** argv) {
         }
         in_ms /= frames * 2;
         const float input_db = dbfs(in_ms);
-        const float output_db[kProfileCount] = {};
         float output_levels[kProfileCount]{};
         for (int p = 0; p < kProfileCount; ++p) {
             block_ms[p] /= frames * 2;
@@ -186,7 +185,6 @@ int main(int argc, char** argv) {
             max_delta[p] = std::max(max_delta[p], output_levels[p] - dbfs(
                 block_ms[kBaseline]));
         }
-        (void)output_db;
         total_n += frames * 2;
 
         dsp::AdaptiveDecisionSnapshot t{};
@@ -215,17 +213,26 @@ int main(int argc, char** argv) {
         ++rows;
     }
 
-    const float overall_in = dbfs(total_sq[kBaseline] * 0.0 + 1.0e-30);
-    (void)overall_in;
-    std::printf("Psychic full-engine evaluation: %s\n", argv[1]);
-    std::printf("duration_s=%.3f blocks=%llu\n",
+    float overall[kProfileCount]{};
+    for (int p = 0; p < kProfileCount; ++p)
+        overall[p] = dbfs(total_sq[p] / std::max<uint64_t>(1, total_n));
+    std::printf("Psychic full-engine evaluation: %s\\n", argv[1]);
+    std::printf("duration_s=%.3f blocks=%llu\\n",
         static_cast<double>(samples / 2) / wi.sample_rate,
         static_cast<unsigned long long>(rows));
-    std::printf("gain400_cut12=%.2f dB, gain800_cut12=%.2f dB, gain400_cut6=%.2f dB, full_adaptive=%.2f dB\n",
-        dbfs(total_sq[kGain400Cut12] / std::max<uint64_t>(1, total_n)),
-        dbfs(total_sq[kGain800Cut12] / std::max<uint64_t>(1, total_n)),
-        dbfs(total_sq[kGain400Cut6] / std::max<uint64_t>(1, total_n)),
-        dbfs(total_sq[kFullAdaptive] / std::max<uint64_t>(1, total_n)));
+    std::printf("baseline=%.2f gain400_cut12=%.2f gain800_cut12=%.2f gain400_cut6=%.2f full_adaptive=%.2f dB\\n",
+        overall[kBaseline], overall[kGain400Cut12], overall[kGain800Cut12],
+        overall[kGain400Cut6], overall[kFullAdaptive]);
+    std::printf("delta_vs_baseline: gain400_cut12=%.2f gain800_cut12=%.2f gain400_cut6=%.2f full=%.2f dB\\n",
+        overall[kGain400Cut12] - overall[kBaseline],
+        overall[kGain800Cut12] - overall[kBaseline],
+        overall[kGain400Cut6] - overall[kBaseline],
+        overall[kFullAdaptive] - overall[kBaseline]);
+    std::printf("per_block_delta_ranges: gain400_cut12=%.2f..%.2f gain800_cut12=%.2f..%.2f gain400_cut6=%.2f..%.2f full=%.2f..%.2f dB\\n",
+        min_delta[kGain400Cut12], max_delta[kGain400Cut12],
+        min_delta[kGain800Cut12], max_delta[kGain800Cut12],
+        min_delta[kGain400Cut6], max_delta[kGain400Cut6],
+        min_delta[kFullAdaptive], max_delta[kFullAdaptive]);
     std::printf("gain_applied_range_db=%.2f..%.2f limiter_gr_peak_db=%.2f\n",
         min_gain, max_gain, max_gr);
     std::printf("transition_blocks rising=%llu falling=%llu steady=%llu hint_abs_max_db=%.2f\n",

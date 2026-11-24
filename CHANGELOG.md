@@ -9,6 +9,7 @@
 - Bounded lock-free snapshot reads using lock-free scalar atomics; no callback logging, allocation, or event queue
 - Deterministic section-transition validation for abrupt steps, gradual fades, steady-state recovery, and bass-only balance changes
 - Generated 48 kHz signal scenarios for compressed-style modulation, sparse percussion, clipped/limited-style material, and programme-level fades
+- Added bounded offline whole-track profile statistics: integrated RMS, active loudness percentiles/range, peak/crest, bass prominence, silence ratio, and section-transition duration
 
 
 ### Added
@@ -16,6 +17,7 @@
 - Separate pre-enhancement control RMS so auto-gain does not counteract automatic bass/preamp boosts
 - Focused tests for rolling track-state trends, transient pressure, sustained-level gain-cut confidence, section-transition protection, headroom allocation, telemetry, and block-size-independent smoothing
 - Full-engine regression verifying that gain cuts build after a loud section persists rather than immediately following a level transition
+- Deterministic offline track-analysis tests and evaluator summary output
 - Architecture and validation notes in `docs/ADAPTIVE_CONTROL_ENGINE.md`
 
 ### Changed

@@ -86,7 +86,7 @@ inline int& failed() {
 inline int run_all() {
     results().clear();
     failed() = 0;
-    printf("\n=== DSP ENGINE unit tests ===\n");
+    printf("\n=== Psychic unit tests ===\n");
     for (const auto& tc : registry()) {
         try {
             tc.fn();

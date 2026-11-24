@@ -115,41 +115,56 @@ int main(int argc, char** argv) {
     dsp_headroom_budget_set(eng, 0.50f, 0.20f, 0.30f);
 
     std::ofstream csv(argv[2]);
-    if (!csv) { dsp_destroy(eng); return 4; }
-    csv << "time_s,input_rms_db,output_rms_db,source_peak_db,track_short_rms_db,"
+    if (!csv) { dsp_destroy(baseline); dsp_destroy(eng); return 4; }
+    csv << "time_s,input_rms_db,baseline_output_rms_db,adaptive_output_rms_db,"
+           "adaptive_minus_baseline_db,source_peak_db,track_short_rms_db,"
            "track_long_rms_db,trend_db,transition,confidence,hint_db,"
            "bass_target_db,bass_applied_db,preamp_target_db,preamp_applied_db,"
            "gain_target_db,gain_applied_db,limiter_gr_db,available_headroom_db,"
            "bass_reasons,preamp_reasons,gain_reasons\n";
 
     constexpr int block = 480;
+    std::vector<float> baseline_output(static_cast<size_t>(block) * 2);
     std::vector<float> output(static_cast<size_t>(block) * 2);
     double in_sq_sum = 0.0, out_sq_sum = 0.0;
     uint64_t in_n = 0, out_n = 0;
     float min_gain = 100.f, max_gain = -100.f, max_gr = 0.f, max_hint = 0.f;
     uint64_t rising = 0, falling = 0, steady = 0, rows = 0;
     float min_output_delta = 100.f, max_output_delta = -100.f;
+    float min_adaptive_vs_baseline = 100.f, max_adaptive_vs_baseline = -100.f;
+    double baseline_sq_sum = 0.0;
+    uint64_t baseline_n = 0;
     for (size_t offset = 0; offset < samples / 2; offset += block) {
         const int frames = static_cast<int>(std::min<size_t>(block, samples / 2 - offset));
         const float* in = input.data() + offset * 2;
-        if (dsp_process(eng, in, output.data(), frames) != DSP_OK) {
+        if (dsp_process(baseline, in, baseline_output.data(), frames) != DSP_OK ||
+            dsp_process(eng, in, output.data(), frames) != DSP_OK) {
             std::fprintf(stderr, "dsp_process failed at %.3f s\n",
                          static_cast<double>(offset) / wi.sample_rate);
             dsp_destroy(eng); return 5;
         }
-        double in_ms = 0.0, out_ms = 0.0;
+        double in_ms = 0.0, base_ms = 0.0, out_ms = 0.0;
         for (int i = 0; i < frames * 2; ++i) {
             in_ms += static_cast<double>(in[i]) * in[i];
+            base_ms += static_cast<double>(baseline_output[static_cast<size_t>(i)]) *
+                       baseline_output[static_cast<size_t>(i)];
             out_ms += static_cast<double>(output[static_cast<size_t>(i)]) *
                       output[static_cast<size_t>(i)];
         }
         in_ms /= frames * 2;
+        base_ms /= frames * 2;
         out_ms /= frames * 2;
+        baseline_sq_sum += base_ms * frames * 2;
+        baseline_n += frames * 2;
         in_sq_sum += in_ms * frames * 2;
         out_sq_sum += out_ms * frames * 2;
         in_n += frames * 2; out_n += frames * 2;
-        const float input_db = dbfs(in_ms), output_db = dbfs(out_ms);
+        const float input_db = dbfs(in_ms), baseline_db = dbfs(base_ms);
+        const float output_db = dbfs(out_ms);
         const float delta = output_db - input_db;
+        const float adaptive_delta = output_db - baseline_db;
+        min_adaptive_vs_baseline = std::min(min_adaptive_vs_baseline, adaptive_delta);
+        max_adaptive_vs_baseline = std::max(max_adaptive_vs_baseline, adaptive_delta);
         min_output_delta = std::min(min_output_delta, delta);
         max_output_delta = std::max(max_output_delta, delta);
 
@@ -164,7 +179,8 @@ int main(int argc, char** argv) {
         else if (t.section_transition == dsp::kSectionFalling) ++falling;
         else ++steady;
         csv << (static_cast<double>(offset) / wi.sample_rate) << ','
-            << input_db << ',' << output_db << ',' << t.source_peak_db << ','
+            << input_db << ',' << baseline_db << ',' << output_db << ','
+            << adaptive_delta << ',' << t.source_peak_db << ','
             << t.track_short_rms_db << ',' << t.track_long_rms_db << ','
             << t.track_loudness_trend_db << ',' << t.section_transition << ','
             << t.section_transition_confidence << ',' << t.anticipatory_gain_hint_db << ','
@@ -177,6 +193,7 @@ int main(int argc, char** argv) {
     }
     const float overall_in = dbfs(in_sq_sum / std::max<uint64_t>(1, in_n));
     const float overall_out = dbfs(out_sq_sum / std::max<uint64_t>(1, out_n));
+    const float overall_baseline = dbfs(baseline_sq_sum / std::max<uint64_t>(1, baseline_n));
     std::printf("Psychic full-engine evaluation: %s\n", argv[1]);
     std::printf("duration_s=%.3f blocks=%llu\n",
         static_cast<double>(samples / 2) / wi.sample_rate,
@@ -191,6 +208,7 @@ int main(int argc, char** argv) {
     std::printf("per_block_output_delta_range_db=%.2f..%.2f\n",
         min_output_delta, max_output_delta);
     std::printf("csv=%s\n", argv[2]);
+    dsp_destroy(baseline);
     dsp_destroy(eng);
     return 0;
 }

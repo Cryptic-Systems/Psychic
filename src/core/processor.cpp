@@ -727,6 +727,28 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
 #endif
 
     /*
+     * Control RMS is measured after user EQ but before adaptive bass,
+     * virtual bass and auto-preamp. This prevents those enhancements from
+     * making auto-gain counteract its own peers.
+     */
+    {
+        double block_ms = 0.0;
+        const int n = frames * ch;
+        for (int c = 0; c < ch; ++c)
+            for (int i = 0; i < frames; ++i) {
+                const double x = static_cast<double>(eng->temp[c][i]);
+                block_ms += x * x;
+            }
+        block_ms /= std::max(1, n);
+        const double win_sec = std::max(0.05, eng->auto_gain_window_ms * 0.001);
+        const double coeff = 1.0 - std::exp(
+            -static_cast<double>(frames) / (win_sec * eng->sample_rate));
+        eng->rms_control_env_ms += coeff * (block_ms - eng->rms_control_env_ms);
+        const double control_rms = std::sqrt(std::max(1e-30, eng->rms_control_env_ms));
+        eng->meter_control_rms_db = dsp::linear_to_db_f(static_cast<float>(control_rms));
+    }
+
+    /*
      * AACE: estimate headroom from this block's post-user-EQ source peak,
      * not the previous block's post-limiter meter. A transient-aware envelope
      * prevents one peak or the limiter's own GR from collapsing every boost.
@@ -826,29 +848,6 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
         for (int c = 0; c < ch; ++c)
             for (int i = 0; i < frames; ++i)
                 eng->temp[c][i] *= g;
-    }
-
-    /*
-     * Track two RMS views:
-     * - control RMS is measured before adaptive bass/preamp so those boosts
-     *   cannot make auto-gain counteract them (a common source of pumping).
-     * - short-term RMS remains measured after tone/gain shaping for telemetry.
-     */
-    {
-        double block_ms = 0.0;
-        const int n = frames * ch;
-        for (int c = 0; c < ch; ++c)
-            for (int i = 0; i < frames; ++i) {
-                const double x = static_cast<double>(eng->temp[c][i]);
-                block_ms += x * x;
-            }
-        block_ms /= std::max(1, n);
-        const double win_sec = std::max(0.05, eng->auto_gain_window_ms * 0.001);
-        const double coeff = 1.0 - std::exp(
-            -static_cast<double>(frames) / (win_sec * eng->sample_rate));
-        eng->rms_control_env_ms += coeff * (block_ms - eng->rms_control_env_ms);
-        const double control_rms = std::sqrt(std::max(1e-30, eng->rms_control_env_ms));
-        eng->meter_control_rms_db = dsp::linear_to_db_f(static_cast<float>(control_rms));
     }
 
     /* Output-side RMS telemetry, after adaptive bass and preamp. */

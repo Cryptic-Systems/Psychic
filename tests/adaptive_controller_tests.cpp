@@ -7,7 +7,7 @@ int main() {
 
     // The positive-gain budget is shared, weighted, and margin-aware.
     const auto budget = controller.allocate_headroom(
-        -6.0f, -0.1f, 1.0f, 0.5f, 0.2f, 0.3f, 48000.0f, 480);
+        -6.0f, -18.0f, -0.1f, 1.0f, 0.5f, 0.2f, 0.3f, 48000.0f, 480);
     if (std::fabs(budget.available_db - 4.4f) >= 1.0e-3f) return 1;
     if (std::fabs((budget.bass_db + budget.preamp_db +
                    budget.gain_boost_db) - budget.available_db) >= 1.0e-3f) return 2;
@@ -15,9 +15,22 @@ int main() {
     // A sudden peak contracts the available budget progressively rather than
     // instantly withdrawing all enhancement headroom for one block.
     const auto transient = controller.allocate_headroom(
-        0.0f, -0.1f, 1.0f, 0.5f, 0.2f, 0.3f, 48000.0f, 480);
+        0.0f, -30.0f, -0.1f, 1.0f, 0.5f, 0.2f, 0.3f, 48000.0f, 480);
     if (transient.available_db <= 0.0f) return 3;
-    if (transient.available_db >= budget.available_db) return 4;
+    if (transient.available_db < budget.available_db) return 4;
+
+    // Repeated high-crest blocks build pressure and eventually constrain the
+    // budget; one isolated peak must not trigger the same response.
+    dsp::AdaptiveController repeated;
+    repeated.allocate_headroom(-6.0f, -18.0f, -0.1f, 1.0f,
+                               0.5f, 0.2f, 0.3f, 48000.0f, 480);
+    dsp::AdaptiveHeadroomBudget repeated_budget{};
+    for (int i = 0; i < 100; ++i) {
+        repeated_budget = repeated.allocate_headroom(
+            0.0f, -30.0f, -0.1f, 1.0f, 0.5f, 0.2f, 0.3f,
+            48000.0f, 480);
+    }
+    if (repeated_budget.available_db >= transient.available_db) return 18;
 
     // Smoothing is based on elapsed audio time, not a fixed per-block step.
     dsp::AdaptiveController smooth_a;
@@ -52,6 +65,8 @@ int main() {
     published.block_index = 42;
     published.bass_reasons = dsp::kDecisionActive | dsp::kDecisionBudgetLimited;
     published.source_peak_db = -3.0f;
+    published.source_rms_db = -15.0f;
+    published.budget_peak_db = -4.0f;
     published.bass_target_db = 4.0f;
     published.bass_applied_db = 2.5f;
     published.limiter_reduction_db = 1.25f;
@@ -60,6 +75,8 @@ int main() {
     if (observed.block_index != 42) return 11;
     if (observed.bass_reasons != published.bass_reasons) return 12;
     if (std::fabs(observed.source_peak_db - published.source_peak_db) > 1.0e-6f) return 13;
+    if (std::fabs(observed.source_rms_db - published.source_rms_db) > 1.0e-6f) return 19;
+    if (std::fabs(observed.budget_peak_db - published.budget_peak_db) > 1.0e-6f) return 20;
     if (std::fabs(observed.bass_target_db - 4.0f) > 1.0e-6f) return 14;
     if (std::fabs(observed.bass_applied_db - 2.5f) > 1.0e-6f) return 15;
     if (std::fabs(observed.limiter_reduction_db - 1.25f) > 1.0e-6f) return 16;

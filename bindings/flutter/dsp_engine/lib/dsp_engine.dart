@@ -1,4 +1,4 @@
-/// Flutter FFI bindings for [DSP ENGINE](https://github.com/innotrepid/DSP-ENGINE).
+/// Flutter FFI bindings for [Psychic](https://github.com/Cryptic-Systems/Psychic).
 ///
 /// High-level Dart API over the C ABI (`dsp_engine.h`).
 ///

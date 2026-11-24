@@ -204,8 +204,10 @@ int main(int argc, char** argv) {
     std::printf("duration_s=%.3f blocks=%llu\n",
         static_cast<double>(samples / 2) / wi.sample_rate,
         static_cast<unsigned long long>(rows));
-    std::printf("input_rms_db=%.2f output_rms_db=%.2f net_level_change_db=%.2f\n",
-        overall_in, overall_out, overall_out - overall_in);
+    std::printf("input_rms_db=%.2f baseline_output_rms_db=%.2f adaptive_output_rms_db=%.2f\\n",
+        overall_in, overall_baseline, overall_out);
+    std::printf("adaptive_vs_baseline_db=%.2f per_block_range=%.2f..%.2f\\n",
+        overall_out - overall_baseline, min_adaptive_vs_baseline, max_adaptive_vs_baseline);
     std::printf("gain_applied_range_db=%.2f..%.2f limiter_gr_peak_db=%.2f\n",
         min_gain, max_gain, max_gr);
     std::printf("transition_blocks rising=%llu falling=%llu steady=%llu hint_abs_max_db=%.2f\n",
@@ -214,7 +216,6 @@ int main(int argc, char** argv) {
     std::printf("per_block_output_delta_range_db=%.2f..%.2f\n",
         min_output_delta, max_output_delta);
     std::printf("csv=%s\n", argv[2]);
-    dsp_destroy(baseline);
     dsp_destroy(baseline);
     dsp_destroy(eng);
     return 0;

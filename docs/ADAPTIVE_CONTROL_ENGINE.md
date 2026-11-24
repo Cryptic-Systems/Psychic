@@ -60,7 +60,7 @@ The control RMS also applies a gentle low-frequency de-emphasis below roughly 12
 
 Auto-gain, auto-bass, auto-preamp, and virtual-bass targets are smoothed using elapsed audio time rather than fixed per-block coefficients. Gain reduction and recovery use different time constants. Bass and preamp reductions move faster than increases; increases ease in more gradually.
 
-These are initial engineering defaults, not final perceptual tuning. They must be validated with representative music and measured output.
+Auto-gain defaults to a 6 dB maximum cut as a conservative guardrail against excessive attenuation. Hosts can explicitly request a deeper cut (up to 24 dB) when stronger loudness normalization is desired. This guardrail does not replace the limiter or weaken peak protection. The default was selected after comparing 400 ms and 800 ms RMS windows and 6 dB versus 12 dB cut limits against three programme samples: the longer window barely changed sustained attenuation, while the 6 dB cap removed the deepest cuts without affecting the consistently loud sample's boost behaviour. These are initial engineering defaults, not final perceptual tuning. They must be validated with broader representative music and listening tests.
 
 ## Decision telemetry
 

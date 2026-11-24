@@ -1,7 +1,7 @@
 /*
  * Offline AACE evaluation against decoded programme material.
  * Input: 48 kHz, stereo, IEEE float32 WAV (convert MP3 with ffmpeg first).
- * This links to the real Psychic engine and records per-block telemetry.
+ * All profiles link to and run the real Psychic dsp_process() implementation.
  */
 #include "dsp_engine.h"
 #include "core/adaptive_controller.h"
@@ -12,8 +12,6 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
-#include <iostream>
-#include <string>
 #include <vector>
 
 bool dsp_internal_read_adaptive_telemetry(
@@ -40,11 +38,11 @@ bool read_wav_header(std::ifstream& f, WavInfo& w) {
         const auto start = f.tellg();
         if (!std::memcmp(id, "fmt ", 4)) {
             uint16_t align = 0;
+            uint32_t byte_rate = 0;
             if (size < 16 || !f.read(reinterpret_cast<char*>(&w.format), 2) ||
                 !f.read(reinterpret_cast<char*>(&w.channels), 2) ||
-                !f.read(reinterpret_cast<char*>(&w.sample_rate), 4)) return false;
-            uint32_t byte_rate = 0;
-            if (!f.read(reinterpret_cast<char*>(&byte_rate), 4) ||
+                !f.read(reinterpret_cast<char*>(&w.sample_rate), 4) ||
+                !f.read(reinterpret_cast<char*>(&byte_rate), 4) ||
                 !f.read(reinterpret_cast<char*>(&align), 2) ||
                 !f.read(reinterpret_cast<char*>(&w.bits), 2)) return false;
             have_fmt = true;
@@ -60,6 +58,14 @@ bool read_wav_header(std::ifstream& f, WavInfo& w) {
 
 float dbfs(double ms) {
     return static_cast<float>(10.0 * std::log10(std::max(1.0e-30, ms)));
+}
+
+void configure_auto_gain(DspEngine* eng, float window_ms, float max_cut_db) {
+    dsp_auto_gain_set_target_rms_db(eng, -18.0f);
+    dsp_auto_gain_set_max_boost_db(eng, 6.0f);
+    dsp_auto_gain_set_max_cut_db(eng, max_cut_db);
+    dsp_auto_gain_set_window_ms(eng, window_ms);
+    dsp_auto_gain_enable(eng, 1);
 }
 }
 
@@ -100,103 +106,92 @@ int main(int argc, char** argv) {
     cfg.limiter_attack_ms = 0.1f;
     cfg.limiter_lookahead_ms = 2.0f;
 
-    DspEngine* baseline = dsp_create(&cfg);
-    DspEngine* gain_only = dsp_create(&cfg);
-    DspEngine* eng = dsp_create(&cfg);
-    if (!baseline || !gain_only || !eng) {
-        std::fprintf(stderr, "dsp_create failed\n");
-        if (baseline) dsp_destroy(baseline);
-        if (gain_only) dsp_destroy(gain_only);
-        if (eng) dsp_destroy(eng);
-        return 3;
+    enum { kBaseline, kGain400Cut12, kGain800Cut12, kGain400Cut6, kFullAdaptive, kProfileCount };
+    DspEngine* engines[kProfileCount]{};
+    for (int i = 0; i < kProfileCount; ++i) {
+        engines[i] = dsp_create(&cfg);
+        if (!engines[i]) {
+            std::fprintf(stderr, "dsp_create failed for profile %d\n", i);
+            for (auto* e : engines) if (e) dsp_destroy(e);
+            return 3;
+        }
     }
-    dsp_auto_gain_set_target_rms_db(gain_only, -18.0f);
-    dsp_auto_gain_set_max_boost_db(gain_only, 6.0f);
-    dsp_auto_gain_set_max_cut_db(gain_only, 12.0f);
-    dsp_auto_gain_set_window_ms(gain_only, 400.0f);
-    dsp_auto_gain_enable(gain_only, 1);
-    dsp_auto_bass_enable(eng, 1);
-    dsp_auto_bass_set_target_db(eng, 6.0f);
-    dsp_auto_bass_set_margin_db(eng, 1.0f);
-    dsp_auto_preamp_enable(eng, 1);
-    dsp_auto_preamp_set_target_db(eng, 3.0f);
-    dsp_auto_gain_set_target_rms_db(eng, -18.0f);
-    dsp_auto_gain_set_max_boost_db(eng, 6.0f);
-    dsp_auto_gain_set_max_cut_db(eng, 12.0f);
-    dsp_auto_gain_set_window_ms(eng, 400.0f);
-    dsp_auto_gain_enable(eng, 1);
-    dsp_headroom_budget_set(eng, 0.50f, 0.20f, 0.30f);
+    configure_auto_gain(engines[kGain400Cut12], 400.f, 12.f);
+    configure_auto_gain(engines[kGain800Cut12], 800.f, 12.f);
+    configure_auto_gain(engines[kGain400Cut6], 400.f, 6.f);
+
+    DspEngine* full = engines[kFullAdaptive];
+    dsp_auto_bass_enable(full, 1);
+    dsp_auto_bass_set_target_db(full, 6.0f);
+    dsp_auto_bass_set_margin_db(full, 1.0f);
+    dsp_auto_preamp_enable(full, 1);
+    dsp_auto_preamp_set_target_db(full, 3.0f);
+    configure_auto_gain(full, 400.f, 12.f);
+    dsp_headroom_budget_set(full, 0.50f, 0.20f, 0.30f);
 
     std::ofstream csv(argv[2]);
-    if (!csv) { dsp_destroy(baseline); dsp_destroy(gain_only); dsp_destroy(eng); return 4; }
-    csv << "time_s,input_rms_db,baseline_output_rms_db,gain_only_output_rms_db,"
-           "full_adaptive_output_rms_db,gain_only_minus_baseline_db,"
-           "full_adaptive_minus_baseline_db,source_peak_db,track_short_rms_db,"
-           "track_long_rms_db,trend_db,transition,confidence,hint_db,"
-           "bass_target_db,bass_applied_db,preamp_target_db,preamp_applied_db,"
-           "gain_target_db,gain_applied_db,limiter_gr_db,available_headroom_db,"
-           "bass_reasons,preamp_reasons,gain_reasons\n";
+    if (!csv) { for (auto* e : engines) dsp_destroy(e); return 4; }
+    csv << "time_s,input_rms_db,baseline_output_rms_db,gain400_cut12_rms_db,"
+           "gain800_cut12_rms_db,gain400_cut6_rms_db,full_adaptive_output_rms_db,"
+           "gain400_cut12_minus_baseline_db,gain800_cut12_minus_baseline_db,"
+           "gain400_cut6_minus_baseline_db,full_adaptive_minus_baseline_db,"
+           "source_peak_db,track_short_rms_db,track_long_rms_db,trend_db,"
+           "transition,confidence,hint_db,bass_target_db,bass_applied_db,"
+           "preamp_target_db,preamp_applied_db,gain_target_db,gain_applied_db,"
+           "limiter_gr_db,available_headroom_db,bass_reasons,preamp_reasons,gain_reasons\n";
 
     constexpr int block = 480;
-    std::vector<float> baseline_output(static_cast<size_t>(block) * 2);
-    std::vector<float> gain_only_output(static_cast<size_t>(block) * 2);
-    std::vector<float> output(static_cast<size_t>(block) * 2);
-    double in_sq_sum = 0.0, out_sq_sum = 0.0, gain_only_sq_sum = 0.0;
-    uint64_t in_n = 0, out_n = 0;
+    std::vector<float> output[kProfileCount];
+    for (auto& v : output) v.resize(static_cast<size_t>(block) * 2);
+    double total_sq[kProfileCount]{};
+    uint64_t total_n = 0;
     float min_gain = 100.f, max_gain = -100.f, max_gr = 0.f, max_hint = 0.f;
     uint64_t rising = 0, falling = 0, steady = 0, rows = 0;
-    float min_output_delta = 100.f, max_output_delta = -100.f;
-    float min_adaptive_vs_baseline = 100.f, max_adaptive_vs_baseline = -100.f;
-    float min_gain_only_vs_baseline = 100.f, max_gain_only_vs_baseline = -100.f;
-    double baseline_sq_sum = 0.0;
-    uint64_t baseline_n = 0, gain_only_n = 0;
+    float min_delta[kProfileCount]{}, max_delta[kProfileCount]{};
+    for (int i = 0; i < kProfileCount; ++i) {
+        min_delta[i] = 100.f;
+        max_delta[i] = -100.f;
+    }
+
     for (size_t offset = 0; offset < samples / 2; offset += block) {
         const int frames = static_cast<int>(std::min<size_t>(block, samples / 2 - offset));
         const float* in = input.data() + offset * 2;
-        if (dsp_process(baseline, in, baseline_output.data(), frames) != DSP_OK ||
-            dsp_process(gain_only, in, gain_only_output.data(), frames) != DSP_OK ||
-            dsp_process(eng, in, output.data(), frames) != DSP_OK) {
-            std::fprintf(stderr, "dsp_process failed at %.3f s\n",
-                         static_cast<double>(offset) / wi.sample_rate);
-            dsp_destroy(baseline); dsp_destroy(gain_only); dsp_destroy(eng); return 5;
+        for (int p = 0; p < kProfileCount; ++p) {
+            if (dsp_process(engines[p], in, output[p].data(), frames) != DSP_OK) {
+                std::fprintf(stderr, "dsp_process failed at %.3f s, profile %d\n",
+                    static_cast<double>(offset) / wi.sample_rate, p);
+                for (auto* e : engines) dsp_destroy(e);
+                return 5;
+            }
         }
-        double in_ms = 0.0, base_ms = 0.0, gain_only_ms = 0.0, out_ms = 0.0;
+
+        double in_ms = 0.0;
+        double block_ms[kProfileCount]{};
         for (int i = 0; i < frames * 2; ++i) {
             in_ms += static_cast<double>(in[i]) * in[i];
-            base_ms += static_cast<double>(baseline_output[static_cast<size_t>(i)]) *
-                       baseline_output[static_cast<size_t>(i)];
-            gain_only_ms += static_cast<double>(gain_only_output[static_cast<size_t>(i)]) *
-                            gain_only_output[static_cast<size_t>(i)];
-            out_ms += static_cast<double>(output[static_cast<size_t>(i)]) *
-                      output[static_cast<size_t>(i)];
+            for (int p = 0; p < kProfileCount; ++p)
+                block_ms[p] += static_cast<double>(output[p][static_cast<size_t>(i)]) *
+                               output[p][static_cast<size_t>(i)];
         }
         in_ms /= frames * 2;
-        base_ms /= frames * 2;
-        gain_only_ms /= frames * 2;
-        out_ms /= frames * 2;
-        baseline_sq_sum += base_ms * frames * 2;
-        baseline_n += frames * 2;
-        gain_only_sq_sum += gain_only_ms * frames * 2;
-        gain_only_n += frames * 2;
-        in_sq_sum += in_ms * frames * 2;
-        out_sq_sum += out_ms * frames * 2;
-        in_n += frames * 2; out_n += frames * 2;
-        const float input_db = dbfs(in_ms), baseline_db = dbfs(base_ms);
-        const float gain_only_db = dbfs(gain_only_ms);
-        const float output_db = dbfs(out_ms);
-        const float delta = output_db - input_db;
-        const float gain_only_delta = gain_only_db - baseline_db;
-        const float adaptive_delta = output_db - baseline_db;
-        min_gain_only_vs_baseline = std::min(min_gain_only_vs_baseline, gain_only_delta);
-        max_gain_only_vs_baseline = std::max(max_gain_only_vs_baseline, gain_only_delta);
-        min_adaptive_vs_baseline = std::min(min_adaptive_vs_baseline, adaptive_delta);
-        max_adaptive_vs_baseline = std::max(max_adaptive_vs_baseline, adaptive_delta);
-        min_output_delta = std::min(min_output_delta, delta);
-        max_output_delta = std::max(max_output_delta, delta);
+        const float input_db = dbfs(in_ms);
+        const float output_db[kProfileCount] = {};
+        float output_levels[kProfileCount]{};
+        for (int p = 0; p < kProfileCount; ++p) {
+            block_ms[p] /= frames * 2;
+            total_sq[p] += block_ms[p] * frames * 2;
+            output_levels[p] = dbfs(block_ms[p]);
+            min_delta[p] = std::min(min_delta[p], output_levels[p] - dbfs(
+                block_ms[kBaseline]));
+            max_delta[p] = std::max(max_delta[p], output_levels[p] - dbfs(
+                block_ms[kBaseline]));
+        }
+        (void)output_db;
+        total_n += frames * 2;
 
         dsp::AdaptiveDecisionSnapshot t{};
-        if (!dsp_internal_read_adaptive_telemetry(eng, &t)) continue;
-        const float gr = dsp_limiter_get_gr_db(eng);
+        if (!dsp_internal_read_adaptive_telemetry(full, &t)) continue;
+        const float gr = dsp_limiter_get_gr_db(full);
         min_gain = std::min(min_gain, t.gain_applied_db);
         max_gain = std::max(max_gain, t.gain_applied_db);
         max_gr = std::max(max_gr, gr);
@@ -204,43 +199,39 @@ int main(int argc, char** argv) {
         if (t.section_transition == dsp::kSectionRising) ++rising;
         else if (t.section_transition == dsp::kSectionFalling) ++falling;
         else ++steady;
-        csv << (static_cast<double>(offset) / wi.sample_rate) << ','
-            << input_db << ',' << baseline_db << ',' << gain_only_db << ',' << output_db << ','
-            << gain_only_delta << ',' << adaptive_delta << ',' << t.source_peak_db << ','
-            << t.track_short_rms_db << ',' << t.track_long_rms_db << ','
-            << t.track_loudness_trend_db << ',' << t.section_transition << ','
-            << t.section_transition_confidence << ',' << t.anticipatory_gain_hint_db << ','
-            << t.bass_target_db << ',' << t.bass_applied_db << ','
-            << t.preamp_target_db << ',' << t.preamp_applied_db << ','
-            << t.gain_target_db << ',' << t.gain_applied_db << ','
-            << gr << ',' << t.available_headroom_db << ','
+
+        csv << (static_cast<double>(offset) / wi.sample_rate) << ',' << input_db;
+        for (int p = 0; p < kProfileCount; ++p) csv << ',' << output_levels[p];
+        for (int p = 1; p < kProfileCount; ++p)
+            csv << ',' << (output_levels[p] - output_levels[kBaseline]);
+        csv << ',' << t.source_peak_db << ',' << t.track_short_rms_db << ','
+            << t.track_long_rms_db << ',' << t.track_loudness_trend_db << ','
+            << t.section_transition << ',' << t.section_transition_confidence << ','
+            << t.anticipatory_gain_hint_db << ',' << t.bass_target_db << ','
+            << t.bass_applied_db << ',' << t.preamp_target_db << ','
+            << t.preamp_applied_db << ',' << t.gain_target_db << ','
+            << t.gain_applied_db << ',' << gr << ',' << t.available_headroom_db << ','
             << t.bass_reasons << ',' << t.preamp_reasons << ',' << t.gain_reasons << '\n';
         ++rows;
     }
-    const float overall_in = dbfs(in_sq_sum / std::max<uint64_t>(1, in_n));
-    const float overall_out = dbfs(out_sq_sum / std::max<uint64_t>(1, out_n));
-    const float overall_baseline = dbfs(baseline_sq_sum / std::max<uint64_t>(1, baseline_n));
-    const float overall_gain_only = dbfs(gain_only_sq_sum / std::max<uint64_t>(1, gain_only_n));
+
+    const float overall_in = dbfs(total_sq[kBaseline] * 0.0 + 1.0e-30);
+    (void)overall_in;
     std::printf("Psychic full-engine evaluation: %s\n", argv[1]);
     std::printf("duration_s=%.3f blocks=%llu\n",
         static_cast<double>(samples / 2) / wi.sample_rate,
         static_cast<unsigned long long>(rows));
-    std::printf("input_rms_db=%.2f baseline_db=%.2f gain_only_db=%.2f full_adaptive_db=%.2f\n",
-        overall_in, overall_baseline, overall_gain_only, overall_out);
-    std::printf("gain_only_vs_baseline_db=%.2f range=%.2f..%.2f\n",
-        overall_gain_only - overall_baseline, min_gain_only_vs_baseline, max_gain_only_vs_baseline);
-    std::printf("full_adaptive_vs_baseline_db=%.2f range=%.2f..%.2f\n",
-        overall_out - overall_baseline, min_adaptive_vs_baseline, max_adaptive_vs_baseline);
+    std::printf("gain400_cut12=%.2f dB, gain800_cut12=%.2f dB, gain400_cut6=%.2f dB, full_adaptive=%.2f dB\n",
+        dbfs(total_sq[kGain400Cut12] / std::max<uint64_t>(1, total_n)),
+        dbfs(total_sq[kGain800Cut12] / std::max<uint64_t>(1, total_n)),
+        dbfs(total_sq[kGain400Cut6] / std::max<uint64_t>(1, total_n)),
+        dbfs(total_sq[kFullAdaptive] / std::max<uint64_t>(1, total_n)));
     std::printf("gain_applied_range_db=%.2f..%.2f limiter_gr_peak_db=%.2f\n",
         min_gain, max_gain, max_gr);
     std::printf("transition_blocks rising=%llu falling=%llu steady=%llu hint_abs_max_db=%.2f\n",
         static_cast<unsigned long long>(rising), static_cast<unsigned long long>(falling),
         static_cast<unsigned long long>(steady), max_hint);
-    std::printf("per_block_output_delta_range_db=%.2f..%.2f\n",
-        min_output_delta, max_output_delta);
     std::printf("csv=%s\n", argv[2]);
-    dsp_destroy(baseline);
-    dsp_destroy(gain_only);
-    dsp_destroy(eng);
+    for (auto* e : engines) dsp_destroy(e);
     return 0;
 }

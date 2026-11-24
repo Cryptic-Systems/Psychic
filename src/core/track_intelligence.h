@@ -6,6 +6,7 @@
 #include "track_analyzer.h"
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 
@@ -42,8 +43,9 @@ class AdaptiveTrackIntelligence {
 public:
     static TrackIntelligenceReport analyze(const TrackAnalysisSummary& s) noexcept {
         TrackIntelligenceReport out{};
-        if (!(s.active_seconds >= kMinimumActiveSeconds) ||
-            !(s.duration_seconds >= kMinimumDurationSeconds)) return out;
+        if (!valid_summary(s)) return out;
+        if (s.active_seconds < kMinimumActiveSeconds ||
+            s.duration_seconds < kMinimumDurationSeconds) return out;
         out.sufficient_data = true;
 
         add(out, TrackTrait::LowLevelQuiet,
@@ -117,7 +119,7 @@ public:
     }
 
 private:
-    static constexpr float kMinimumActiveSeconds = 3.f;
+    static constexpr double kMinimumActiveSeconds = 3.0;
     static constexpr double kMinimumDurationSeconds = 5.0;
     static constexpr float kFindingConfidenceFloor = 0.25f;
     static constexpr float kQuietStartDb = -22.f, kQuietRangeDb = 14.f;
@@ -130,13 +132,47 @@ private:
     static constexpr float kTransitionRatioStart = 0.08f, kTransitionRatioRange = 0.27f;
     static constexpr float kTransitionSecondsStart = 1.5f, kTransitionSecondsRange = 5.f;
 
+    static bool finite_in(float value, float low, float high) noexcept {
+        return std::isfinite(value) && value >= low && value <= high;
+    }
+    static bool valid_summary(const TrackAnalysisSummary& s) noexcept {
+        if (!std::isfinite(s.duration_seconds) ||
+            !std::isfinite(s.active_seconds) ||
+            !std::isfinite(s.silence_seconds) ||
+            !std::isfinite(s.rising_seconds) ||
+            !std::isfinite(s.falling_seconds) ||
+            !std::isfinite(s.transition_seconds)) return false;
+        if (s.duration_seconds < 0.0 || s.active_seconds < 0.0 ||
+            s.silence_seconds < 0.0 || s.active_seconds > s.duration_seconds ||
+            s.silence_seconds > s.duration_seconds ||
+            s.transition_seconds < 0.0 ||
+            s.transition_seconds > s.active_seconds ||
+            s.rising_seconds < 0.0 || s.falling_seconds < 0.0 ||
+            s.rising_seconds + s.falling_seconds > s.transition_seconds + 0.01)
+            return false;
+        if (!finite_in(s.integrated_rms_db, -120.f, 24.f) ||
+            !finite_in(s.bass_rms_db, -120.f, 24.f) ||
+            !finite_in(s.bass_prominence_db, -144.f, 144.f) ||
+            !finite_in(s.sample_peak_db, -120.f, 24.f) ||
+            !finite_in(s.mean_crest_db, -144.f, 144.f) ||
+            !finite_in(s.max_crest_db, 0.f, 144.f) ||
+            !finite_in(s.crest_p90_db, 0.f, 36.f) ||
+            !finite_in(s.high_crest_seconds_ratio, 0.f, 1.f) ||
+            !finite_in(s.loudness_p10_db, -120.f, 24.f) ||
+            !finite_in(s.loudness_p50_db, -120.f, 24.f) ||
+            !finite_in(s.loudness_p95_db, -120.f, 24.f) ||
+            !finite_in(s.loudness_range_db, 0.f, 144.f)) return false;
+        return s.loudness_p10_db <= s.loudness_p50_db &&
+               s.loudness_p50_db <= s.loudness_p95_db;
+    }
     static float ramp(float v, float start, float width) noexcept {
         return std::max(0.f, std::min(1.f, (v - start) / width));
     }
     static void add(TrackIntelligenceReport& r, TrackTrait t, float c,
                     float primary, float secondary) noexcept {
         c = std::max(0.f, std::min(1.f, c));
-        if (c < kFindingConfidenceFloor || r.finding_count >= r.findings.size()) return;
+        if (!std::isfinite(c) || c < kFindingConfidenceFloor ||
+            r.finding_count >= r.findings.size()) return;
         r.findings[r.finding_count++] = TrackIntelligenceFinding{t,c,primary,secondary};
     }
     static void recommend(TrackIntelligenceReport& r,

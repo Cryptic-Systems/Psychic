@@ -76,6 +76,8 @@ struct AdaptiveDecisionSnapshot {
     uint32_t section_transition = kSectionSteady;
     float section_transition_confidence = 0.f;
     float anticipatory_gain_hint_db = 0.f;
+    float gain_cut_confidence = 0.f;
+    float gain_cut_limit_db = 0.f;
     float budget_peak_db = -120.f;
     float control_rms_db = -120.f;
     float output_rms_db = -120.f;
@@ -113,6 +115,8 @@ public:
         section_transition_.store(s.section_transition, std::memory_order_relaxed);
         section_transition_confidence_.store(s.section_transition_confidence, std::memory_order_relaxed);
         anticipatory_gain_hint_db_.store(s.anticipatory_gain_hint_db, std::memory_order_relaxed);
+        gain_cut_confidence_.store(s.gain_cut_confidence, std::memory_order_relaxed);
+        gain_cut_limit_db_.store(s.gain_cut_limit_db, std::memory_order_relaxed);
         budget_peak_db_.store(s.budget_peak_db, std::memory_order_relaxed);
         control_rms_db_.store(s.control_rms_db, std::memory_order_relaxed);
         output_rms_db_.store(s.output_rms_db, std::memory_order_relaxed);
@@ -151,6 +155,8 @@ public:
             out.section_transition = section_transition_.load(std::memory_order_relaxed);
             out.section_transition_confidence = section_transition_confidence_.load(std::memory_order_relaxed);
             out.anticipatory_gain_hint_db = anticipatory_gain_hint_db_.load(std::memory_order_relaxed);
+            out.gain_cut_confidence = gain_cut_confidence_.load(std::memory_order_relaxed);
+            out.gain_cut_limit_db = gain_cut_limit_db_.load(std::memory_order_relaxed);
             out.budget_peak_db = budget_peak_db_.load(std::memory_order_relaxed);
             out.control_rms_db = control_rms_db_.load(std::memory_order_relaxed);
             out.output_rms_db = output_rms_db_.load(std::memory_order_relaxed);
@@ -185,6 +191,7 @@ private:
     std::atomic<uint32_t> section_transition_{kSectionSteady};
     std::atomic<float> section_transition_confidence_{0.f};
     std::atomic<float> anticipatory_gain_hint_db_{0.f};
+    std::atomic<float> gain_cut_confidence_{0.f}, gain_cut_limit_db_{0.f};
     std::atomic<float> budget_peak_db_{-120.f};
     std::atomic<float> control_rms_db_{-120.f}, output_rms_db_{-120.f};
     std::atomic<float> available_headroom_db_{0.f}, bass_budget_db_{0.f};
@@ -205,6 +212,9 @@ public:
         track_state_initialized_ = false;
         section_transition_confidence_ = 0.f;
         section_transition_candidate_ = 0;
+        gain_reference_ms_ = 0.0;
+        gain_reference_initialized_ = false;
+        gain_cut_confidence_ = 0.f;
         initialized_ = false;
     }
 
@@ -285,6 +295,51 @@ public:
                 std::min(kMaxAnticipatoryGainHintDb, raw_hint));
         }
         return out;
+    }
+
+    /*
+     * Permit gain reduction only when the bass-de-emphasized control level
+     * has remained above the requested target. A slow reference rejects
+     * short loud sections; section-transition confidence further eases cuts
+     * while the programme is changing. Positive gain remains governed by the
+     * existing headroom allocator and is unaffected by this policy.
+     */
+    float update_gain_cut_confidence(float control_rms_db,
+                                     float target_rms_db,
+                                     float transition_confidence,
+                                     float sample_rate,
+                                     int frames) noexcept {
+        const float dt = (sample_rate > 0.f && frames > 0)
+            ? static_cast<float>(frames) / sample_rate : 0.01f;
+        const double control_ms = std::pow(10.0,
+            static_cast<double>(std::max(-120.f, control_rms_db)) / 10.0);
+        if (!gain_reference_initialized_) {
+            gain_reference_ms_ = control_ms;
+            gain_reference_initialized_ = true;
+        } else {
+            const double alpha = 1.0 - std::exp(-dt / kGainReferenceSeconds);
+            gain_reference_ms_ += alpha * (control_ms - gain_reference_ms_);
+        }
+        const float sustained_rms_db = static_cast<float>(10.0 * std::log10(
+            std::max(1.0e-30, gain_reference_ms_)));
+        const float excess_db = sustained_rms_db - target_rms_db -
+            kGainCutOnsetMarginDb;
+        const float persistence = std::max(0.f, std::min(1.f,
+            excess_db / kGainCutFullConfidenceRangeDb));
+        const float transition = std::max(0.f, std::min(1.f,
+            transition_confidence));
+        const float transition_guard = 1.f -
+            kGainCutTransitionAttenuation * transition;
+        const float target_confidence = persistence * transition_guard;
+        const float tau = target_confidence > gain_cut_confidence_
+            ? kGainCutConfidenceAttackSeconds
+            : kGainCutConfidenceReleaseSeconds;
+        const float alpha = 1.f - std::exp(-dt / tau);
+        gain_cut_confidence_ += alpha *
+            (target_confidence - gain_cut_confidence_);
+        gain_cut_confidence_ = std::max(0.f,
+            std::min(1.f, gain_cut_confidence_));
+        return gain_cut_confidence_;
     }
 
     /*
@@ -402,6 +457,12 @@ private:
     static constexpr float kHeadroomReleaseSeconds = 0.45f;
     static constexpr float kGainReductionSeconds = 0.22f;
     static constexpr float kGainRecoverySeconds = 0.38f;
+    static constexpr float kGainReferenceSeconds = 3.0f;
+    static constexpr float kGainCutOnsetMarginDb = 1.5f;
+    static constexpr float kGainCutFullConfidenceRangeDb = 6.0f;
+    static constexpr float kGainCutTransitionAttenuation = 0.85f;
+    static constexpr float kGainCutConfidenceAttackSeconds = 0.65f;
+    static constexpr float kGainCutConfidenceReleaseSeconds = 1.25f;
 
     float smoothed_headroom_db_ = 0.f;
     float transient_density_ = 0.f;
@@ -411,6 +472,9 @@ private:
     bool track_state_initialized_ = false;
     float section_transition_confidence_ = 0.f;
     int section_transition_candidate_ = 0;
+    double gain_reference_ms_ = 0.0;
+    bool gain_reference_initialized_ = false;
+    float gain_cut_confidence_ = 0.f;
     bool initialized_ = false;
 };
 

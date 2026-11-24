@@ -104,6 +104,54 @@ int main() {
                   large_transition.section_transition_confidence) > 2.0e-3f)
         return 40;
 
+    // Abrupt level steps should qualify after persistence, then return to
+    // steady once the rolling fast/slow envelopes converge.
+    dsp::AdaptiveController stepped_section;
+    dsp::AdaptiveTrackState stepped_state{};
+    for (int i = 0; i < 500; ++i)
+        stepped_state = stepped_section.update_track_state(0.001, 0.0001, 48000.f, 480);
+    for (int i = 0; i < 100; ++i)
+        stepped_state = stepped_section.update_track_state(0.1, 0.01, 48000.f, 480);
+    if (stepped_state.section_transition != dsp::kSectionRising) return 50;
+    if (stepped_state.anticipatory_gain_hint_db >= 0.f) return 51;
+    for (int i = 0; i < 800; ++i)
+        stepped_state = stepped_section.update_track_state(0.1, 0.01, 48000.f, 480);
+    if (stepped_state.section_transition != dsp::kSectionSteady) return 52;
+    for (int i = 0; i < 100; ++i)
+        stepped_state = stepped_section.update_track_state(0.001, 0.0001, 48000.f, 480);
+    if (stepped_state.section_transition != dsp::kSectionFalling) return 53;
+    if (stepped_state.anticipatory_gain_hint_db <= 0.f) return 54;
+
+    // A gradual fade should still be recognized, without requiring a hard step.
+    dsp::AdaptiveController fade_section;
+    dsp::AdaptiveTrackState fade_state{};
+    for (int i = 0; i < 500; ++i)
+        fade_state = fade_section.update_track_state(0.001, 0.0001, 48000.f, 480);
+    bool fade_qualified = false;
+    for (int i = 0; i < 800; ++i) {
+        const double level_db = -30.0 + 24.0 * static_cast<double>(i) / 799.0;
+        const double power = std::pow(10.0, level_db / 10.0);
+        fade_state = fade_section.update_track_state(power, power * 0.1, 48000.f, 480);
+        if (fade_state.section_transition == dsp::kSectionRising) {
+            fade_qualified = true;
+            if (fade_state.anticipatory_gain_hint_db >= 0.f) return 55;
+        }
+    }
+    if (!fade_qualified) return 56;
+
+    // A bass-only balance change must move bass prominence without being
+    // misclassified as a full-band loudness section transition.
+    dsp::AdaptiveController bass_change;
+    dsp::AdaptiveTrackState bass_state{};
+    for (int i = 0; i < 600; ++i)
+        bass_state = bass_change.update_track_state(0.01, 0.0001, 48000.f, 480);
+    const float bass_before = bass_state.bass_rms_db;
+    for (int i = 0; i < 400; ++i)
+        bass_state = bass_change.update_track_state(0.01, 0.008, 48000.f, 480);
+    if (bass_state.bass_rms_db < bass_before + 12.0f) return 57;
+    if (bass_state.section_transition != dsp::kSectionSteady) return 58;
+    if (std::fabs(bass_state.loudness_trend_db) > 0.1f) return 59;
+
     // Small, rapidly varying level fluctuations should not look like a section
     // change after the rolling envelopes settle.
     dsp::AdaptiveController noisy_section;

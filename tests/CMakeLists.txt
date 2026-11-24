@@ -66,3 +66,14 @@ if(WIN32 AND TARGET dsp_engine)
         COMMENT "Copy dsp_engine.dll next to benchmarks"
     )
 endif()
+
+# Full-engine offline evaluation harness. Input is decoded float WAV so the
+# same deterministic PCM reaches dsp_process() on every CI platform.
+add_executable(adaptive_audio_evaluation
+    adaptive_audio_evaluation.cpp
+)
+target_include_directories(adaptive_audio_evaluation PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
+target_link_libraries(adaptive_audio_evaluation PRIVATE dsp_engine)

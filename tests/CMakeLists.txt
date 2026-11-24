@@ -47,6 +47,18 @@ if(NOT MSVC)
     target_compile_options(adaptive_signal_scenarios PRIVATE -fexceptions -frtti)
 endif()
 add_test(NAME adaptive_signal_scenarios COMMAND adaptive_signal_scenarios)
+
+add_executable(track_analysis_tests
+    track_analysis_tests.cpp
+)
+target_include_directories(track_analysis_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+if(NOT MSVC)
+    target_compile_options(track_analysis_tests PRIVATE -fexceptions -frtti
+)
+endif()
+add_test(NAME track_analysis_tests COMMAND track_analysis_tests)
 set_tests_properties(unit_tests PROPERTIES TIMEOUT 30)
 
 add_executable(benchmarks

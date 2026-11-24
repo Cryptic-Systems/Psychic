@@ -27,7 +27,7 @@ int main()
         return 1;
     }
 
-    std::printf("DSP ENGINE %s created\n", dsp_version());
+    std::printf("Psychic %s created\n", dsp_version());
     std::printf("  sample rate : %.0f\n", cfg.sample_rate);
     std::printf("  channels    : %d\n", cfg.channels);
 

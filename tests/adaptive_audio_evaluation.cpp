@@ -5,6 +5,7 @@
  */
 #include "dsp_engine.h"
 #include "core/adaptive_controller.h"
+#include "core/track_analyzer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -151,6 +152,7 @@ int main(int argc, char** argv) {
     uint64_t active_blocks[kProfileCount]{};
     uint64_t below_3db_blocks[kProfileCount]{}, below_6db_blocks[kProfileCount]{};
     uint64_t current_attenuation_run[kProfileCount]{}, max_attenuation_run[kProfileCount]{};
+    dsp::AdaptiveTrackAnalyzer track_analyzer;
     for (int i = 0; i < kProfileCount; ++i) {
         min_delta[i] = 100.f;
         max_delta[i] = -100.f;
@@ -203,6 +205,9 @@ int main(int argc, char** argv) {
 
         dsp::AdaptiveDecisionSnapshot t{};
         if (!dsp_internal_read_adaptive_telemetry(full, &t)) continue;
+        track_analyzer.add_block(input_db, t.source_peak_db,
+            t.track_bass_rms_db, static_cast<double>(frames) / wi.sample_rate,
+            t.section_transition, t.section_transition_confidence);
         const float gr = dsp_limiter_get_gr_db(full);
         min_gain = std::min(min_gain, t.gain_applied_db);
         max_gain = std::max(max_gain, t.gain_applied_db);
@@ -259,6 +264,18 @@ int main(int argc, char** argv) {
     std::printf("transition_blocks rising=%llu falling=%llu steady=%llu hint_abs_max_db=%.2f\n",
         static_cast<unsigned long long>(rising), static_cast<unsigned long long>(falling),
         static_cast<unsigned long long>(steady), max_hint);
+    const auto track = track_analyzer.summary();
+    std::printf("track_profile: duration=%.2fs active=%.2fs silence=%.2fs\n",
+        track.duration_seconds, track.active_seconds, track.silence_seconds);
+    std::printf("track_loudness: integrated=%.2fdBFS p10=%.2f p50=%.2f p95=%.2f range=%.2fdB\n",
+        track.integrated_rms_db, track.loudness_p10_db, track.loudness_p50_db,
+        track.loudness_p95_db, track.loudness_range_db);
+    std::printf("track_spectrum_balance: bass_rms=%.2fdBFS bass_prominence=%.2fdB\n",
+        track.bass_rms_db, track.bass_prominence_db);
+    std::printf("track_peaks: peak=%.2fdBFS mean_crest=%.2fdB max_crest=%.2fdB\n",
+        track.sample_peak_db, track.mean_crest_db, track.max_crest_db);
+    std::printf("track_transitions: rising=%.2fs falling=%.2fs total=%.2fs\n",
+        track.rising_seconds, track.falling_seconds, track.transition_seconds);
     std::printf("csv=%s\n", argv[2]);
     for (auto* e : engines) dsp_destroy(e);
     return 0;

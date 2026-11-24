@@ -53,6 +53,22 @@ Auto-gain, auto-bass, auto-preamp, and virtual-bass targets are smoothed using e
 
 These are initial engineering defaults, not final perceptual tuning. They must be validated with representative music and measured output.
 
+## Decision telemetry
+
+AACE now publishes a latest-block decision snapshot into fixed-size atomic state owned by the engine. It records:
+- block index and post-user-EQ source peak;
+- pre-enhancement control RMS and post-enhancement/pre-DVC RMS;
+- available shared headroom and the bass, preamp, and gain allocations;
+- requested target and applied value for auto-bass, auto-preamp, auto-gain, and virtual bass;
+- limiter gain-reduction peak-hold value;
+- reason flags for each adaptive subsystem.
+
+Reason flags currently identify active control, shared-budget limitation, safety-hint limitation, configured target/range limitation, silence recovery, disabled-control fade, and content-aware virtual-bass adaptation. Multiple reasons may apply in the same block.
+
+The snapshot uses lock-free 32-bit and float atomics with a sequence counter. The audio thread only writes fixed scalar fields; readers retry a bounded number of times and never block the callback. No event queue, allocation, logging, or I/O is performed in the callback. The snapshot is internal and is not yet exposed through the public C ABI or Flutter binding; that API decision is deferred until the telemetry fields and semantics have been validated.
+
+The limiter field is its existing peak-held gain-reduction meter, not a per-sample or per-block instantaneous GR trace. The output RMS field is measured after adaptive bass/preamp and before auto-gain DVC and limiting.
+
 ## Real-time and compatibility constraints
 
 - No dynamic allocation or locks in the processing callback.
@@ -78,7 +94,7 @@ Record limiter gain reduction, auto-gain applied dB, auto-bass applied dB, pream
 
 ## Next AACE stages
 
-1. Add explicit controller telemetry and decision reasons so each automatic adjustment can be explained.
+1. Validate decision telemetry against listening tests, then decide which stable diagnostics should be exposed to the host.
 2. Separate transient protection from sustained loudness management more fully, then tune limiter recovery against real material.
 3. Add rolling track-state analysis for live streams and richer pre-analysis hints for local tracks.
 4. Add listener and output-device profiles, with safety constraints always taking priority.

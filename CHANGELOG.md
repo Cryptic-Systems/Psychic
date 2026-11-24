@@ -2,6 +2,8 @@
 
 ## [Unreleased] — Adaptive Audio Control Engine
 ### Added
+- Rolling live track-state analysis with fast/slow loudness envelopes, loudness trend, rolling bass RMS, and bass prominence
+- Content-aware virtual-bass decisions now use rolling bass energy rather than a peak-hold transient meter
 - Transient-density-aware headroom budgeting that discounts isolated high-crest events while allowing recurring peaks to build sustained pressure
 - Internal per-block decision telemetry for adaptive subsystem reasons, requested/applied targets, shared headroom, loudness references, and limiter gain-reduction peak hold
 - Bounded lock-free snapshot reads using lock-free scalar atomics; no callback logging, allocation, or event queue
@@ -10,7 +12,7 @@
 ### Added
 - Internal AACE coordination layer for shared headroom allocation and time-based adaptive control smoothing
 - Separate pre-enhancement control RMS so auto-gain does not counteract automatic bass/preamp boosts
-- Focused tests for isolated versus repeated transient pressure, headroom allocation, telemetry, and block-size-independent smoothing
+- Focused tests for rolling track-state trends, transient pressure, headroom allocation, telemetry, and block-size-independent smoothing
 - Architecture and validation notes in `docs/ADAPTIVE_CONTROL_ENGINE.md`
 
 ### Changed

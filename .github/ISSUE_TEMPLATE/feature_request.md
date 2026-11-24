@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest an idea for DSP ENGINE
+about: Suggest an idea for Psychic
 title: '[Feature] '
 labels: enhancement
 assignees: ''

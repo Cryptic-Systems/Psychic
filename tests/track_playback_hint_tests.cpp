@@ -56,7 +56,11 @@ int main() {
     if (apply_track_playback_hint(nullptr, completed_scan()) !=
         DSP_ERR_INVALID_ARG) return 13;
 
-    DspEngine* engine = dsp_create(nullptr);
+    DspConfig config{};
+    config.sample_rate = 48000.f;
+    config.channels = 2;
+    config.max_block = 1024;
+    DspEngine* engine = dsp_create(&config);
     if (!engine) return 14;
     if (apply_track_playback_hint(engine, completed_scan()) != DSP_OK) {
         dsp_destroy(engine);

@@ -31,12 +31,29 @@ jobs:
         run: ctest --test-dir build --output-on-failure --timeout 60
       - name: Full-engine audio evaluation
         run: |
-          mkdir -p build/audio-evaluation
-          for f in tests/audio_samples/*.mp3; do
-            base="$(basename "${f%.mp3}")"
-            ffmpeg -y -v error -i "$f" -ar 48000 -ac 2 -c:a pcm_f32le "build/audio-evaluation/$base.wav"
-            build/tests/adaptive_audio_evaluation "build/audio-evaluation/$base.wav" "build/audio-evaluation/$base.csv"
-          done
+          mkdir -p build/audio-inputs build/audio-evaluation
+          python3 - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+          archive = Path("tests/audio_samples/TestAudio.zip")
+          if archive.exists():
+              with ZipFile(archive) as bundle:
+                  for member in bundle.infolist():
+                      if member.is_dir() or Path(member.filename).suffix.lower() != ".mp3":
+                          continue
+                      name = Path(member.filename).name
+                      if not name:
+                          continue
+                      target = Path("build/audio-inputs") / name
+                      with bundle.open(member) as source, target.open("wb") as output:
+                          output.write(source.read())
+          PY
+          find tests/audio_samples build/audio-inputs -type f -iname '*.mp3' -print0 |
+            while IFS= read -r -d '' f; do
+              base="$(basename "${f%.*}")"
+              ffmpeg -y -v error -i "$f" -ar 48000 -ac 2 -c:a pcm_f32le "build/audio-evaluation/$base.wav"
+              build/tests/adaptive_audio_evaluation "build/audio-evaluation/$base.wav" "build/audio-evaluation/$base.csv"
+            done
       - name: Upload audio evaluation reports
         if: always()
         uses: actions/upload-artifact@v4

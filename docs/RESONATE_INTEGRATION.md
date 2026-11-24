@@ -1,6 +1,7 @@
-# Resonate ↔ DSP-ENGINE Integration Guide
+# Resonate ↔ Psychic Integration Guide
 
-**Engine version:** 0.5.1  
+**Product:** Psychic  
+**Engine version:** 0.6.1  
 **Scope:** Intelligent headroom (Path A/B), auto-bass, auto-DVC, meters, UI, and host responsibilities.
 
 This document lists everything Resonate must implement on the **host / JNI / UI** side so the engine’s intelligence is visible and useful. The engine already provides the DSP; Resonate owns decode, cache, UX, and lifecycle.
@@ -21,7 +22,7 @@ This document lists everything Resonate must implement on the **host / JNI / UI*
                              │ process_pcm16 / control mailbox
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ DSP-ENGINE                                                      │
+│ Psychic                                                      │
 │  EQ → auto-bass shelf → speaker/VB → preamp → DVC(auto-gain)    │
 │       → limiter → dither                                        │
 │  Meters: in-peak, TP, post-EQ, bass-band, headroom, short RMS   │

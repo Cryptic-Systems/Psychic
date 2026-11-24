@@ -11,6 +11,7 @@
 #include "dsp_engine.h"
 #include "core/eq_biquad.h"
 #include "core/dvc.h"
+#include "core/adaptive_controller.h"
 #include "core/resampler.h"
 #include "core/resonate_ext.h"
 #include "utils/math_utils.h"
@@ -111,6 +112,8 @@ struct DspEngine {
     float meter_bass_peak_db = -120.f;
     float meter_headroom_db = 0.f;
     float meter_short_term_rms_db = -120.f;
+    float meter_control_rms_db = -120.f;
+    double rms_control_env_ms = 0.0;
     double bass_lp_z = 0.0; /* mono one-pole for bass-band peak */
     double rms_env_ms = 0.0; /* mean-square envelope for short-term RMS */
 
@@ -139,6 +142,7 @@ struct DspEngine {
     float budget_bass = 0.50f;
     float budget_preamp = 0.20f;
     float budget_gain = 0.30f;
+    dsp::AdaptiveController adaptive_controller;
 
     /* Auto-preamp */
     bool  auto_preamp_enabled = false;
@@ -278,6 +282,8 @@ struct DspEngine {
         meter_bass_peak_db = -120.f;
         meter_headroom_db = limiter_ceiling_db + 120.f;
         meter_short_term_rms_db = -120.f;
+        meter_control_rms_db = -120.f;
+        rms_control_env_ms = 0.0;
         bass_lp_z = 0.0;
         rms_env_ms = 0.0;
     }
@@ -720,20 +726,28 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
     }
 #endif
 
-    /* Shared headroom pool for bass / preamp / auto-gain. */
-    float gr_db = 0.f;
-    {
-        float g = static_cast<float>(eng->lim_gr);
-        if (g > 1e-12f && g < 1.f) gr_db = -20.f * std::log10(g);
+    /*
+     * AACE: estimate headroom from this block's post-user-EQ source peak,
+     * not the previous block's post-limiter meter. A transient-aware envelope
+     * prevents one peak or the limiter's own GR from collapsing every boost.
+     */
+    float source_peak = 0.f;
+    for (int c = 0; c < ch; ++c) {
+        for (int i = 0; i < frames; ++i) {
+            const float x = static_cast<float>(eng->temp[c][i]);
+            const float ax = x >= 0.f ? x : -x;
+            if (ax > source_peak) source_peak = ax;
+        }
     }
-    float pool = eng->meter_headroom_db - eng->auto_bass_margin_db - 0.5f * gr_db;
-    if (pool < 0.f) pool = 0.f;
-    float bw = eng->budget_bass, pw = eng->budget_preamp, gw = eng->budget_gain;
-    float wsum = bw + pw + gw;
-    if (wsum < 1e-6f) { bw = 0.5f; pw = 0.2f; gw = 0.3f; wsum = 1.f; }
-    const float bass_share = pool * (bw / wsum);
-    const float preamp_share = pool * (pw / wsum);
-    const float gain_share = pool * (gw / wsum);
+    const float source_peak_db = dsp::linear_to_db_f(source_peak);
+    const dsp::AdaptiveHeadroomBudget adaptive_budget =
+        eng->adaptive_controller.allocate_headroom(
+            source_peak_db, eng->limiter_ceiling_db, eng->auto_bass_margin_db,
+            eng->budget_bass, eng->budget_preamp, eng->budget_gain,
+            eng->sample_rate, frames);
+    const float bass_share = adaptive_budget.bass_db;
+    const float preamp_share = adaptive_budget.preamp_db;
+    const float gain_share = adaptive_budget.gain_boost_db;
 
     /* Auto-bass servo (budget-capped). */
     if (eng->auto_bass_enabled) {
@@ -814,13 +828,36 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
                 eng->temp[c][i] *= g;
     }
 
-    /* Short-term RMS (mean-square one-pole) on pre-DVC signal. */
+    /*
+     * Track two RMS views:
+     * - control RMS is measured before adaptive bass/preamp so those boosts
+     *   cannot make auto-gain counteract them (a common source of pumping).
+     * - short-term RMS remains measured after tone/gain shaping for telemetry.
+     */
     {
         double block_ms = 0.0;
         const int n = frames * ch;
         for (int c = 0; c < ch; ++c)
             for (int i = 0; i < frames; ++i) {
-                double x = static_cast<double>(eng->temp[c][i]);
+                const double x = static_cast<double>(eng->temp[c][i]);
+                block_ms += x * x;
+            }
+        block_ms /= std::max(1, n);
+        const double win_sec = std::max(0.05, eng->auto_gain_window_ms * 0.001);
+        const double coeff = 1.0 - std::exp(
+            -static_cast<double>(frames) / (win_sec * eng->sample_rate));
+        eng->rms_control_env_ms += coeff * (block_ms - eng->rms_control_env_ms);
+        const double control_rms = std::sqrt(std::max(1e-30, eng->rms_control_env_ms));
+        eng->meter_control_rms_db = dsp::linear_to_db_f(static_cast<float>(control_rms));
+    }
+
+    /* Output-side RMS telemetry, after adaptive bass and preamp. */
+    {
+        double block_ms = 0.0;
+        const int n = frames * ch;
+        for (int c = 0; c < ch; ++c)
+            for (int i = 0; i < frames; ++i) {
+                const double x = static_cast<double>(eng->temp[c][i]);
                 block_ms += x * x;
             }
         block_ms /= std::max(1, n);
@@ -852,14 +889,14 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
     /* Auto-DVC: short-term RMS → target, capped by gain budget share. */
     if (eng->auto_gain_enabled) {
         float err = (eng->auto_gain_target_rms_db + eng->auto_gain_bias_db)
-                    - eng->meter_short_term_rms_db;
+                    - eng->meter_control_rms_db;
         if (err > eng->auto_gain_max_boost_db) err = eng->auto_gain_max_boost_db;
         if (err < -eng->auto_gain_max_cut_db) err = -eng->auto_gain_max_cut_db;
         if (err > gain_share) err = gain_share;
         if (err > 24.f) err = 24.f;
         if (err < -24.f) err = -24.f;
-        eng->auto_gain_applied_db += eng->auto_gain_smooth
-            * (err - eng->auto_gain_applied_db);
+        eng->auto_gain_applied_db = eng->adaptive_controller.smooth_gain(
+            eng->auto_gain_applied_db, err, eng->sample_rate, frames);
         eng->dvc.set_enabled(true);
         eng->dvc.set_gain_db(eng->auto_gain_applied_db);
     }
@@ -1003,6 +1040,9 @@ DspError dsp_reset(DspEngine* eng) {
     eng->auto_bass_applied_db = 0.f;
     eng->auto_bass_last_gain = 0.f;
     eng->auto_gain_applied_db = 0.f;
+    eng->adaptive_controller.reset();
+    eng->rms_control_env_ms = 0.0;
+    eng->meter_control_rms_db = -120.f;
     eng->auto_preamp_applied_db = 0.f;
     eng->silence_hold_acc_ms = 0.f;
     eng->rebuild_auto_bass();

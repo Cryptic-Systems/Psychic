@@ -780,8 +780,7 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
     const float bass_share = adaptive_budget.bass_db;
     const float preamp_share = adaptive_budget.preamp_db;
     const float gain_share = adaptive_budget.gain_boost_db;
-    decision.budget_peak_db = eng->limiter_ceiling_db - adaptive_budget.available_db -
-        std::max(0.f, eng->auto_bass_margin_db) - 0.5f;
+    decision.budget_peak_db = adaptive_budget.budget_peak_db;
     decision.available_headroom_db = adaptive_budget.available_db;
     decision.bass_budget_db = bass_share;
     decision.preamp_budget_db = preamp_share;

@@ -158,10 +158,10 @@ public:
     }
 
     /*
-     * Allocate positive gain headroom from the current post-user-EQ peak.
+     * Allocate positive gain headroom from post-user-EQ peak and RMS. Isolated
+     * high-crest events are discounted until recurring events build density.
      * The limiter remains the final safety boundary; this budget governs
-     * slower tonal/loudness enhancements and deliberately ignores transient
-     * limiter GR so a single peak cannot collapse every adaptive subsystem.
+     * slower enhancements and never replaces per-sample peak protection.
      */
     AdaptiveHeadroomBudget allocate_headroom(
         float source_peak_db,

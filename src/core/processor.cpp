@@ -1029,7 +1029,7 @@ DspError dsp_reset(DspEngine* eng) {
     eng->auto_preamp_applied_db = 0.f;
     eng->silence_hold_acc_ms = 0.f;
     eng->rebuild_auto_bass();
-    eng->update_auto_gain_smooth();
+    
     return DSP_OK;
 }
 
@@ -1788,7 +1788,7 @@ DspError dsp_auto_gain_set_window_ms(DspEngine* eng, float window_ms) {
     eng->mb_flags.fetch_or(65536, std::memory_order_acq_rel);
     eng->ctrl_seq.fetch_add(1, std::memory_order_release);
     eng->auto_gain_window_ms = window_ms;
-    eng->update_auto_gain_smooth();
+    
     return DSP_OK;
 }
 

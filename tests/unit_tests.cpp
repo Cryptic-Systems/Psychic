@@ -631,6 +631,42 @@ TEST(auto_gain_rms) {
 }
 
 
+TEST(auto_gain_bass_weighting) {
+    auto run_tone = [](float frequency_hz) {
+        DspEngine* eng = create_engine();
+        EXPECT_TRUE(eng != nullptr);
+        EXPECT_EQ(dsp_eq_enable(eng, 0), DSP_OK);
+        EXPECT_EQ(dsp_limiter_enable(eng, 0), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_set_target_rms_db(eng, -18.f), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_set_max_boost_db(eng, 6.f), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_set_max_cut_db(eng, 12.f), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_set_window_ms(eng, 200.f), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_enable(eng, 1), DSP_OK);
+
+        const int frames = 512;
+        std::vector<float> in(frames * 2), out(frames * 2);
+        for (int block = 0; block < 120; ++block) {
+            for (int i = 0; i < frames; ++i) {
+                const float phase = 2.f * 3.14159265f * frequency_hz
+                    * static_cast<float>(block * frames + i) / 48000.f;
+                const float sample = 0.25f * std::sin(phase);
+                in[i * 2] = sample;
+                in[i * 2 + 1] = sample;
+            }
+            EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+        }
+        const float applied = dsp_auto_gain_get_applied_db(eng);
+        dsp_destroy(eng);
+        return applied;
+    };
+
+    const float bass_gain = run_tone(60.f);
+    const float mid_gain = run_tone(1000.f);
+    // Similar peak levels should not cause sub-bass alone to pull down the mix.
+    EXPECT_GT(bass_gain, mid_gain + 1.0f);
+}
+
+
 TEST(headroom_budget_and_hints) {
     DspEngine* eng = create_engine();
     EXPECT_EQ(dsp_headroom_budget_set(eng, 0.6f, 0.2f, 0.2f), DSP_OK);

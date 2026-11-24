@@ -119,3 +119,5 @@
 ## [0.2.0] — earlier
 - Multi-band EQ + Flutter FFI
 - Initial DVC and ring-buffer work
+
+- Adds diagnostic section-transition classification from rolling RMS trend, with confidence persistence and rising/falling/steady states; it does not yet influence gain.

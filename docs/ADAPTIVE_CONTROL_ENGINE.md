@@ -1,0 +1,85 @@
+# Adaptive Audio Control Engine (AACE)
+
+## Purpose
+
+AACE is the coordination layer above Psychic's existing DSP stages. It does not replace EQ, auto-bass, speaker processing, preamp, DVC, or the limiter. It decides how much adaptive enhancement is appropriate and how quickly parameter targets should move.
+
+The first implementation is intentionally internal. It adds no C ABI symbols and does not change the Flutter package or native library identifiers used by Resonate.
+
+## Current processing model
+
+```
+Input
+  |
+User EQ
+  |
+AACE source measurements
+  |-- post-EQ peak for headroom allocation
+  |-- pre-enhancement RMS for loudness control
+  |
+AACE shared headroom allocator
+  |-- bass enhancement budget
+  |-- auto-preamp budget
+  |-- auto-gain boost budget
+  |
+Auto-bass -> speaker / virtual bass -> auto-preamp
+  |
+Output-side RMS telemetry
+  |
+Auto-gain / DVC
+  |
+Limiter -> dither -> output
+```
+
+The audio callback remains the only place that processes audio samples. AACE uses fixed-size state and scalar block measurements; it performs no allocation, locking, file access, decoding, or track scanning.
+
+## First coordination changes
+
+### Shared headroom
+
+The allocator measures the current block's peak after user EQ and before adaptive enhancements. It subtracts the configured safety margin and a transient reserve, then distributes the remaining positive-gain budget according to the existing bass, preamp, and gain weights.
+
+The headroom estimate contracts and recovers with time-based smoothing. It deliberately does not subtract the limiter's own gain reduction from the next block's enhancement budget: doing so can create a feedback loop in which a transient makes every adaptive stage withdraw gain, even after the transient has passed. The limiter remains the final peak-safety boundary.
+
+### Independent loudness reference
+
+Auto-gain now uses a control RMS measured after user EQ but before automatic bass, virtual bass, and auto-preamp. The existing short-term RMS meter remains an output-side measurement after bass and preamp.
+
+This prevents automatic bass/preamp boosts from raising the auto-gain detector and causing auto-gain to undo those boosts through global attenuation.
+
+### Time-based target smoothing
+
+Auto-gain, auto-bass, auto-preamp, and virtual-bass targets are smoothed using elapsed audio time rather than fixed per-block coefficients. Gain reduction and recovery use different time constants. Bass and preamp reductions move faster than increases; increases ease in more gradually.
+
+These are initial engineering defaults, not final perceptual tuning. They must be validated with representative music and measured output.
+
+## Real-time and compatibility constraints
+
+- No dynamic allocation or locks in the processing callback.
+- No analysis of entire tracks in the processing callback.
+- Offline track analysis remains a host/background responsibility.
+- The limiter remains the hard peak-protection stage.
+- Existing C ABI, public structs, Flutter package name, native library name, and Resonate integration remain unchanged.
+- Existing user controls remain authoritative; AACE only coordinates their automatic targets.
+
+## Validation
+
+A focused unit-test target covers weighted headroom allocation, transient headroom response, and block-size-independent gain smoothing.
+
+Before merging, run the complete CMake build and test suite on the supported CI platforms, then run listening comparisons with:
+- isolated transient peaks;
+- sustained bass-heavy material;
+- quiet-to-loud section transitions;
+- heavily limited masters;
+- tracks that receive positive auto-gain;
+- different callback block sizes.
+
+Record limiter gain reduction, auto-gain applied dB, auto-bass applied dB, preamp applied dB, source RMS, output RMS, and headroom while comparing the same source material against the previous controller.
+
+## Next AACE stages
+
+1. Add explicit controller telemetry and decision reasons so each automatic adjustment can be explained.
+2. Separate transient protection from sustained loudness management more fully, then tune limiter recovery against real material.
+3. Add rolling track-state analysis for live streams and richer pre-analysis hints for local tracks.
+4. Add listener and output-device profiles, with safety constraints always taking priority.
+5. Expose opt-in controls and observability to the host only after the internal behaviour is validated.

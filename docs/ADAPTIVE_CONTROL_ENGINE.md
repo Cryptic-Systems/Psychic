@@ -102,10 +102,16 @@ Before merging, run the complete CMake build and test suite on the supported CI 
 
 Record limiter gain reduction, auto-gain applied dB, auto-bass applied dB, preamp applied dB, source RMS, output RMS, and headroom while comparing the same source material against the previous controller.
 
+## Offline whole-track analysis foundation
+
+The host/background-only `AdaptiveTrackAnalyzer` consumes block measurements during a decoded track scan and retains a bounded summary. It reports duration and active/silence time, time-weighted integrated RMS, active-programme loudness percentiles (P10/P50/P95) and percentile range, sample peak, mean/maximum crest, rolling bass RMS/prominence, and confidence-qualified rising/falling transition duration. Loudness percentiles exclude blocks at or below -60 dBFS so leading/trailing silence does not dominate the distribution. The accumulator uses a fixed 145-bin histogram and scalar totals; it does not retain audio or allocate per block. The offline evaluator now prints this profile after running the actual engine against the supplied WAV. These are diagnostic signal features, not standards-compliant LUFS, mastering-quality scores, genre labels, or automatic processing instructions. They are not read by the real-time callback and do not yet change DSP behaviour.
+
+A dedicated deterministic test covers mixed quiet/loud sections, silence, bass prominence, a one-block high peak, transition timing, reset, and non-finite input handling.
+
 ## Next AACE stages
 
 1. Validate sustained-loudness gain-cut gating and decision telemetry against listening tests, then decide which stable diagnostics should be exposed to the host.
 2. Validate transient-density thresholds and attack/release against isolated clicks, percussion, clipped masters, and sustained overload material; then tune limiter recovery.
-3. Validate section-transition confidence and calibrated low-frequency balance against real music, then add richer pre-analysis hints for local tracks.
+3. Validate section-transition confidence and calibrated low-frequency balance against real music, then use the offline track profile as an advisory input for local-track analysis.
 4. Add listener and output-device profiles, with safety constraints always taking priority.
 5. Expose opt-in controls and observability to the host only after the internal behaviour is validated.

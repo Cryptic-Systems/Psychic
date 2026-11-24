@@ -31,6 +31,7 @@ int main() {
             48000.0f, 480);
     }
     if (repeated_budget.available_db >= transient.available_db) return 18;
+    if (repeated_budget.budget_peak_db <= transient.budget_peak_db) return 21;
 
     // Smoothing is based on elapsed audio time, not a fixed per-block step.
     dsp::AdaptiveController smooth_a;

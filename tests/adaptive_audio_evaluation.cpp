@@ -148,6 +148,9 @@ int main(int argc, char** argv) {
     float min_gain = 100.f, max_gain = -100.f, max_gr = 0.f, max_hint = 0.f;
     uint64_t rising = 0, falling = 0, steady = 0, rows = 0;
     float min_delta[kProfileCount]{}, max_delta[kProfileCount]{};
+    uint64_t active_blocks[kProfileCount]{};
+    uint64_t below_3db_blocks[kProfileCount]{}, below_6db_blocks[kProfileCount]{};
+    uint64_t current_attenuation_run[kProfileCount]{}, max_attenuation_run[kProfileCount]{};
     for (int i = 0; i < kProfileCount; ++i) {
         min_delta[i] = 100.f;
         max_delta[i] = -100.f;
@@ -180,10 +183,21 @@ int main(int argc, char** argv) {
             block_ms[p] /= frames * 2;
             total_sq[p] += block_ms[p] * frames * 2;
             output_levels[p] = dbfs(block_ms[p]);
-            min_delta[p] = std::min(min_delta[p], output_levels[p] - dbfs(
-                block_ms[kBaseline]));
-            max_delta[p] = std::max(max_delta[p], output_levels[p] - dbfs(
-                block_ms[kBaseline]));
+            const float delta = output_levels[p] - dbfs(block_ms[kBaseline]);
+            min_delta[p] = std::min(min_delta[p], delta);
+            max_delta[p] = std::max(max_delta[p], delta);
+            if (p != kBaseline && input_db > -60.0f) {
+                ++active_blocks[p];
+                if (delta < -3.0f) ++below_3db_blocks[p];
+                if (delta < -6.0f) ++below_6db_blocks[p];
+                if (delta < -3.0f) {
+                    ++current_attenuation_run[p];
+                    max_attenuation_run[p] = std::max(
+                        max_attenuation_run[p], current_attenuation_run[p]);
+                } else {
+                    current_attenuation_run[p] = 0;
+                }
+            }
         }
         total_n += frames * 2;
 
@@ -235,6 +249,13 @@ int main(int argc, char** argv) {
         min_delta[kFullAdaptive], max_delta[kFullAdaptive]);
     std::printf("gain_applied_range_db=%.2f..%.2f limiter_gr_peak_db=%.2f\n",
         min_gain, max_gain, max_gr);
+    for (int p = 1; p < kProfileCount; ++p) {
+        const double active = static_cast<double>(std::max<uint64_t>(1, active_blocks[p]));
+        std::printf("profile_%d_attenuation: below_minus3db=%.1f%% below_minus6db=%.1f%% max_contiguous_below_minus3db=%.2fs\\n",
+            p, 100.0 * below_3db_blocks[p] / active,
+            100.0 * below_6db_blocks[p] / active,
+            static_cast<double>(max_attenuation_run[p]) * block / wi.sample_rate);
+    }
     std::printf("transition_blocks rising=%llu falling=%llu steady=%llu hint_abs_max_db=%.2f\n",
         static_cast<unsigned long long>(rising), static_cast<unsigned long long>(falling),
         static_cast<unsigned long long>(steady), max_hint);

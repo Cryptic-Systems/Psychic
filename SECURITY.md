@@ -8,7 +8,7 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability in DSP ENGINE, please report it privately.
+If you discover a security vulnerability in Psychic, please report it privately.
 
 **Do not** open a public GitHub issue for security-related reports.
 
@@ -21,4 +21,4 @@ Instead, email the maintainers (or open a private security advisory on GitHub if
 
 We will acknowledge receipt within a reasonable time and work with you to understand and address the issue.
 
-Thank you for helping keep DSP ENGINE and its users safe.
+Thank you for helping keep Psychic and its users safe.

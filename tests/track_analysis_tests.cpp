@@ -29,6 +29,8 @@ int main() {
     if (result.loudness_range_db < 16.f || result.loudness_range_db > 20.f) return 8;
     if (result.sample_peak_db > -0.4f || result.sample_peak_db < -0.6f) return 9;
     if (result.max_crest_db < 23.f) return 10;
+    if (result.crest_p90_db < 17.f || result.crest_p90_db > 19.f) return 16;
+    if (result.high_crest_seconds_ratio < 0.54f || result.high_crest_seconds_ratio > 0.56f) return 17;
     if (result.rising_seconds < 0.99 || result.transition_seconds < 0.99) return 11;
     if (result.bass_prominence_db > -3.f || result.bass_prominence_db < -8.f) return 12;
 

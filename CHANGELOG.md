@@ -18,6 +18,7 @@
 - Architecture and validation notes in `docs/ADAPTIVE_CONTROL_ENGINE.md`
 
 ### Changed
+- Added a 3 s sustained-control-level confidence gate for auto-gain cuts, eased during detected section transitions; positive gain/headroom allocation is unchanged
 - Reduced the default auto-gain maximum cut from 6 dB to 3 dB after expanded programme measurements showed sustained cut-ceiling behaviour on already-mastered material; applications can still explicitly request deeper cuts up to 24 dB
 - Auto-gain headroom uses post-user-EQ peak and RMS with transient-density handling, rather than stale post-limiter telemetry
 - Auto-bass, auto-preamp, virtual-bass, and auto-gain target transitions use elapsed-time smoothing

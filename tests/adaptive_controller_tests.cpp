@@ -12,8 +12,8 @@ int main() {
     if (std::fabs((budget.bass_db + budget.preamp_db +
                    budget.gain_boost_db) - budget.available_db) >= 1.0e-3f) return 2;
 
-    // A sudden peak contracts the available budget progressively rather than
-    // instantly withdrawing all enhancement headroom for one block.
+    // One isolated high-crest peak is discounted instead of withdrawing
+    // enhancement headroom; the limiter remains responsible for peak safety.
     const auto transient = controller.allocate_headroom(
         0.0f, -30.0f, -0.1f, 1.0f, 0.5f, 0.2f, 0.3f, 48000.0f, 480);
     if (transient.available_db <= 0.0f) return 3;

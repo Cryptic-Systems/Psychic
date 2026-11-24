@@ -35,6 +35,7 @@ struct AdaptiveTrackState {
     float bass_prominence_db = -120.f;
     uint32_t section_transition = kSectionSteady;
     float section_transition_confidence = 0.f;
+    float anticipatory_gain_hint_db = 0.f;
 };
 
 struct AdaptiveHeadroomBudget {
@@ -74,6 +75,7 @@ struct AdaptiveDecisionSnapshot {
     float track_bass_prominence_db = -120.f;
     uint32_t section_transition = kSectionSteady;
     float section_transition_confidence = 0.f;
+    float anticipatory_gain_hint_db = 0.f;
     float budget_peak_db = -120.f;
     float control_rms_db = -120.f;
     float output_rms_db = -120.f;
@@ -110,6 +112,7 @@ public:
         track_bass_prominence_db_.store(s.track_bass_prominence_db, std::memory_order_relaxed);
         section_transition_.store(s.section_transition, std::memory_order_relaxed);
         section_transition_confidence_.store(s.section_transition_confidence, std::memory_order_relaxed);
+        anticipatory_gain_hint_db_.store(s.anticipatory_gain_hint_db, std::memory_order_relaxed);
         budget_peak_db_.store(s.budget_peak_db, std::memory_order_relaxed);
         control_rms_db_.store(s.control_rms_db, std::memory_order_relaxed);
         output_rms_db_.store(s.output_rms_db, std::memory_order_relaxed);
@@ -147,6 +150,7 @@ public:
             out.track_bass_prominence_db = track_bass_prominence_db_.load(std::memory_order_relaxed);
             out.section_transition = section_transition_.load(std::memory_order_relaxed);
             out.section_transition_confidence = section_transition_confidence_.load(std::memory_order_relaxed);
+            out.anticipatory_gain_hint_db = anticipatory_gain_hint_db_.load(std::memory_order_relaxed);
             out.budget_peak_db = budget_peak_db_.load(std::memory_order_relaxed);
             out.control_rms_db = control_rms_db_.load(std::memory_order_relaxed);
             out.output_rms_db = output_rms_db_.load(std::memory_order_relaxed);
@@ -180,6 +184,7 @@ private:
     std::atomic<float> track_bass_prominence_db_{-120.f};
     std::atomic<uint32_t> section_transition_{kSectionSteady};
     std::atomic<float> section_transition_confidence_{0.f};
+    std::atomic<float> anticipatory_gain_hint_db_{0.f};
     std::atomic<float> budget_peak_db_{-120.f};
     std::atomic<float> control_rms_db_{-120.f}, output_rms_db_{-120.f};
     std::atomic<float> available_headroom_db_{0.f}, bass_budget_db_{0.f};
@@ -268,6 +273,16 @@ public:
             section_transition_confidence_ >= kTransitionConfidenceThreshold) {
             out.section_transition = direction > 0
                 ? kSectionRising : kSectionFalling;
+        }
+        // Diagnostic-only feed-forward estimate. Positive trend suggests a
+        // small anticipatory cut; negative trend suggests a small recovery.
+        // It is deliberately not consumed by the gain servo at this stage.
+        if (out.section_transition != kSectionSteady) {
+            const float raw_hint = -out.loudness_trend_db *
+                section_transition_confidence_ * kAnticipatoryGainSensitivity;
+            out.anticipatory_gain_hint_db = std::max(
+                -kMaxAnticipatoryGainHintDb,
+                std::min(kMaxAnticipatoryGainHintDb, raw_hint));
         }
         return out;
     }
@@ -377,6 +392,8 @@ private:
     static constexpr float kTransitionTrendRangeDb = 6.f;
     static constexpr float kTransitionDirectionFloorDb = 2.0f;
     static constexpr float kTransitionConfidenceThreshold = 0.18f;
+    static constexpr float kAnticipatoryGainSensitivity = 0.12f;
+    static constexpr float kMaxAnticipatoryGainHintDb = 1.0f;
     static constexpr float kTransientReserveDb = 0.5f;
     static constexpr float kTransientCrestThresholdDb = 12.f;
     static constexpr float kTransientDensityAttackSeconds = 0.35f;

@@ -14,7 +14,8 @@
 ### Added
 - Internal AACE coordination layer for shared headroom allocation and time-based adaptive control smoothing
 - Separate pre-enhancement control RMS so auto-gain does not counteract automatic bass/preamp boosts
-- Focused tests for rolling track-state trends, transient pressure, headroom allocation, telemetry, and block-size-independent smoothing
+- Focused tests for rolling track-state trends, transient pressure, sustained-level gain-cut confidence, section-transition protection, headroom allocation, telemetry, and block-size-independent smoothing
+- Full-engine regression verifying that gain cuts build after a loud section persists rather than immediately following a level transition
 - Architecture and validation notes in `docs/ADAPTIVE_CONTROL_ENGINE.md`
 
 ### Changed

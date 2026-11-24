@@ -598,6 +598,29 @@ TEST(auto_gain_default_cut_limit) {
     dsp_destroy(eng);
 }
 
+TEST(auto_gain_default_cut_is_enforced) {
+    DspEngine* eng = create_engine();
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_EQ(dsp_limiter_enable(eng, 0), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_set_target_rms_db(eng, -18.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_enable(eng, 1), DSP_OK);
+
+    const int frames = 512;
+    std::vector<float> in(frames * 2), out(frames * 2);
+    for (int i = 0; i < frames; ++i) {
+        const float s = 0.5f * std::sin(2.f * 3.14159265f * 1000.f * i / 48000.f);
+        in[i * 2] = s;
+        in[i * 2 + 1] = s;
+    }
+    for (int n = 0; n < 120; ++n)
+        EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+
+    const float applied = dsp_auto_gain_get_applied_db(eng);
+    EXPECT_TRUE(applied <= -2.5f);
+    EXPECT_TRUE(applied >= -3.1f);
+    dsp_destroy(eng);
+}
+
 TEST(auto_gain_rms) {
     DspEngine* eng = create_engine();
     EXPECT_EQ(dsp_limiter_enable(eng, 1), DSP_OK);

@@ -2,6 +2,8 @@
 
 ## [Unreleased] — Adaptive Audio Control Engine
 ### Added
+- Calibration regression coverage for advisory confidence thresholds, midpoint response, monotonicity, and malformed/non-finite profile rejection
+- Fail-closed validation of track summary duration, metric ranges, and percentile ordering before classification
 - Confidence-rated advisory whole-track traits for consistent loudness, dynamic range, bass prominence, sustained transient density, quiet level, and section variability
 - Bounded crest-percentile and high-crest-duration statistics so transient-rich findings cannot be triggered by one isolated peak
 - Explainable review recommendations kept separate from DSP controls and playback processing

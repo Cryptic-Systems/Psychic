@@ -1045,6 +1045,10 @@ DspError dsp_reset(DspEngine* eng) {
 DspError dsp_set_sample_rate(DspEngine* eng, float rate) {
     if (!eng || rate < 8000.f || rate > 384000.f) return DSP_ERR_INVALID_ARG;
     eng->sample_rate = rate;
+    eng->adaptive_controller.reset();
+    eng->rms_control_env_ms = 0.0;
+    std::memset(eng->rms_control_bass_lp_z, 0, sizeof(eng->rms_control_bass_lp_z));
+    eng->meter_control_rms_db = -120.f;
     eng->update_limiter_coeffs();
     eng->clear_lookahead_state();
     eng->dvc.set_sample_rate(rate);
@@ -1062,6 +1066,10 @@ DspError dsp_set_sample_rate(DspEngine* eng, float rate) {
 DspError dsp_set_channels(DspEngine* eng, int channels) {
     if (!eng || channels < 1 || channels > kMaxChannels) return DSP_ERR_INVALID_ARG;
     eng->channels = channels;
+    eng->adaptive_controller.reset();
+    eng->rms_control_env_ms = 0.0;
+    std::memset(eng->rms_control_bass_lp_z, 0, sizeof(eng->rms_control_bass_lp_z));
+    eng->meter_control_rms_db = -120.f;
     eng->clear_lookahead_state();
     eng->rebuild_eq();
     return DSP_OK;

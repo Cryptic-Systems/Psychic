@@ -45,7 +45,7 @@ The headroom estimate contracts and recovers with time-based smoothing. It delib
 
 Auto-gain now uses a control RMS measured after user EQ but before automatic bass, virtual bass, and auto-preamp. The existing short-term RMS meter remains an output-side measurement after bass and preamp.
 
-This prevents automatic bass/preamp boosts from raising the auto-gain detector and causing auto-gain to undo those boosts through global attenuation.
+The control RMS also applies a gentle low-frequency de-emphasis below roughly 120 Hz, so bass-heavy passages have less influence on global gain than mid/high-frequency energy. This is a practical control signal, not a claim of standards-compliant LUFS measurement. It prevents automatic bass/preamp boosts from raising the detector and causing auto-gain to undo those boosts through global attenuation.
 
 ### Time-based target smoothing
 

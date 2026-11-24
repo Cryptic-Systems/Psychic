@@ -49,6 +49,8 @@ struct AdaptiveDecisionSnapshot {
     uint32_t gain_reasons = 0;
     uint32_t virtual_bass_reasons = 0;
     float source_peak_db = -120.f;
+    float source_rms_db = -120.f;
+    float budget_peak_db = -120.f;
     float control_rms_db = -120.f;
     float output_rms_db = -120.f;
     float available_headroom_db = 0.f;
@@ -76,6 +78,8 @@ public:
         gain_reasons_.store(s.gain_reasons, std::memory_order_relaxed);
         virtual_bass_reasons_.store(s.virtual_bass_reasons, std::memory_order_relaxed);
         source_peak_db_.store(s.source_peak_db, std::memory_order_relaxed);
+        source_rms_db_.store(s.source_rms_db, std::memory_order_relaxed);
+        budget_peak_db_.store(s.budget_peak_db, std::memory_order_relaxed);
         control_rms_db_.store(s.control_rms_db, std::memory_order_relaxed);
         output_rms_db_.store(s.output_rms_db, std::memory_order_relaxed);
         available_headroom_db_.store(s.available_headroom_db, std::memory_order_relaxed);
@@ -104,6 +108,8 @@ public:
             out.gain_reasons = gain_reasons_.load(std::memory_order_relaxed);
             out.virtual_bass_reasons = virtual_bass_reasons_.load(std::memory_order_relaxed);
             out.source_peak_db = source_peak_db_.load(std::memory_order_relaxed);
+            out.source_rms_db = source_rms_db_.load(std::memory_order_relaxed);
+            out.budget_peak_db = budget_peak_db_.load(std::memory_order_relaxed);
             out.control_rms_db = control_rms_db_.load(std::memory_order_relaxed);
             out.output_rms_db = output_rms_db_.load(std::memory_order_relaxed);
             out.available_headroom_db = available_headroom_db_.load(std::memory_order_relaxed);
@@ -130,7 +136,9 @@ private:
     std::atomic<uint32_t> block_index_{0};
     std::atomic<uint32_t> bass_reasons_{0}, preamp_reasons_{0}, gain_reasons_{0};
     std::atomic<uint32_t> virtual_bass_reasons_{0};
-    std::atomic<float> source_peak_db_{-120.f}, control_rms_db_{-120.f}, output_rms_db_{-120.f};
+    std::atomic<float> source_peak_db_{-120.f}, source_rms_db_{-120.f};
+    std::atomic<float> budget_peak_db_{-120.f};
+    std::atomic<float> control_rms_db_{-120.f}, output_rms_db_{-120.f};
     std::atomic<float> available_headroom_db_{0.f}, bass_budget_db_{0.f};
     std::atomic<float> preamp_budget_db_{0.f}, gain_budget_db_{0.f};
     std::atomic<float> bass_target_db_{0.f}, bass_applied_db_{0.f};
@@ -144,6 +152,7 @@ class AdaptiveController {
 public:
     void reset() noexcept {
         smoothed_headroom_db_ = 0.f;
+        transient_density_ = 0.f;
         initialized_ = false;
     }
 
@@ -155,6 +164,7 @@ public:
      */
     AdaptiveHeadroomBudget allocate_headroom(
         float source_peak_db,
+        float source_rms_db,
         float ceiling_db,
         float safety_margin_db,
         float bass_weight,
@@ -165,8 +175,24 @@ public:
 
         const float dt = (sample_rate > 0.f && frames > 0)
             ? static_cast<float>(frames) / sample_rate : 0.01f;
+        /*
+         * High peak-to-RMS crest is initially treated as an isolated transient,
+         * not sustained headroom pressure. Repeated high-crest blocks build
+         * transient density over time. The limiter protects every sample.
+         */
+        const float crest_db = source_peak_db - source_rms_db;
+        const float transient_excess = std::max(0.f, crest_db - kTransientCrestThresholdDb);
+        const float density_tau = transient_excess > 0.f
+            ? kTransientDensityAttackSeconds : kTransientDensityReleaseSeconds;
+        const float density_alpha = 1.f - std::exp(-dt / density_tau);
+        transient_density_ += density_alpha * ((transient_excess > 0.f ? 1.f : 0.f) -
+                                                transient_density_);
+        transient_density_ = std::max(0.f, std::min(1.f, transient_density_));
+        const float budget_peak_db =
+            source_peak_db - transient_excess * (1.f - transient_density_);
+
         const float reserve = std::max(0.f, safety_margin_db) + kTransientReserveDb;
-        const float raw_headroom = ceiling_db - source_peak_db - reserve;
+        const float raw_headroom = ceiling_db - budget_peak_db - reserve;
 
         if (!initialized_) {
             smoothed_headroom_db_ = raw_headroom;
@@ -226,12 +252,16 @@ public:
 
 private:
     static constexpr float kTransientReserveDb = 0.5f;
+    static constexpr float kTransientCrestThresholdDb = 12.f;
+    static constexpr float kTransientDensityAttackSeconds = 0.35f;
+    static constexpr float kTransientDensityReleaseSeconds = 0.80f;
     static constexpr float kHeadroomAttackSeconds = 0.12f;
     static constexpr float kHeadroomReleaseSeconds = 0.45f;
     static constexpr float kGainReductionSeconds = 0.22f;
     static constexpr float kGainRecoverySeconds = 0.38f;
 
     float smoothed_headroom_db_ = 0.f;
+    float transient_density_ = 0.f;
     bool initialized_ = false;
 };
 

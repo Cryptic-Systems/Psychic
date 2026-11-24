@@ -96,3 +96,22 @@ else()
     target_compile_options(track_analysis_cache_tests PRIVATE -fexceptions -frtti -fno-fast-math)
 endif()
 add_test(NAME track_analysis_cache_tests COMMAND track_analysis_cache_tests)
+
+# Completed whole-track report to existing playback-hint adapter.
+add_executable(track_playback_hint_tests track_playback_hint_tests.cpp)
+target_include_directories(track_playback_hint_tests PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(track_playback_hint_tests PRIVATE dsp_engine)
+if(MSVC)
+    target_compile_options(track_playback_hint_tests PRIVATE /fp:precise)
+else()
+    target_compile_options(track_playback_hint_tests PRIVATE -fexceptions -frtti -fno-fast-math)
+endif()
+if(WIN32 AND TARGET dsp_engine)
+    add_custom_command(TARGET track_playback_hint_tests POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:dsp_engine>
+            $<TARGET_FILE_DIR:track_playback_hint_tests>
+        COMMENT "Copy dsp_engine.dll next to track_playback_hint_tests"
+    )
+endif()
+add_test(NAME track_playback_hint_tests COMMAND track_playback_hint_tests)

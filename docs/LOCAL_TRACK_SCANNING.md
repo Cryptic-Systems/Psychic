@@ -38,3 +38,11 @@ The scanner retains only fixed-size histograms, scalar totals, filter state, and
 ## API status and compatibility
 
 These are internal C++ host-side foundations, not yet stable public APIs. They do not add C ABI symbols, change existing C structs, modify the Flutter package, or change Resonate integration identifiers. Public C/FFI exposure should be considered separately after lifecycle, cache invalidation, and report semantics are exercised in the host application.
+
+## Conservative playback-hint adapter
+
+`src/core/track_playback_hint.h` translates a completed, sufficient scan snapshot into the existing `dsp_apply_analysis_hint()` call. It forwards the scanner's 120 Hz low-pass RMS as the bass-energy hint and its time-weighted mean block crest as the crest hint. The mapping is bounded and rejects incomplete, insufficient, or malformed snapshots.
+
+The scanner does not calculate true peak or probe a safe bass-boost ceiling. The adapter therefore does not fabricate either measurement and passes the existing 24 dB sentinel to indicate that no safe-bass cap is available. The current C API consumes only the bass-energy and crest fields from `DspAnalysisResult`; the other struct fields are deliberately not treated as scanner measurements.
+
+This adapter does not set EQ, auto-gain targets, auto-bass targets, preamp, or enhancement enablement. It does not interpret advisory trait labels as processing commands. The host may call it once when a track starts, after a cache hit or a completed scan, on the same non-audio thread used for existing control calls. Never call the scanner or cache from the audio callback. This remains an internal C++ host helper; no public C ABI or Flutter/Resonate binding changed.

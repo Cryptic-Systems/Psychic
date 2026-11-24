@@ -23,6 +23,7 @@ static_assert(std::atomic<float>::is_always_lock_free,
 
 struct AdaptiveHeadroomBudget {
     float available_db = 0.f;
+    float budget_peak_db = -120.f;
     float bass_db = 0.f;
     float preamp_db = 0.f;
     float gain_boost_db = 0.f;
@@ -207,6 +208,7 @@ public:
         }
 
         AdaptiveHeadroomBudget out{};
+        out.budget_peak_db = budget_peak_db;
         out.available_db = std::max(0.f, smoothed_headroom_db_);
         float bw = std::max(0.f, bass_weight);
         float pw = std::max(0.f, preamp_weight);

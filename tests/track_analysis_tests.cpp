@@ -1,4 +1,5 @@
 #include "core/track_analyzer.h"
+#include "core/adaptive_controller.h"
 
 #include <cmath>
 

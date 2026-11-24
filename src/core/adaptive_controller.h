@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <atomic>
+#include <cstdint>
 
 namespace dsp {
 
@@ -19,6 +21,118 @@ struct AdaptiveHeadroomBudget {
     float bass_db = 0.f;
     float preamp_db = 0.f;
     float gain_boost_db = 0.f;
+};
+
+/*
+ * Per-block explanation of adaptive decisions. All payload fields are atomic
+ * so readers can inspect a coherent snapshot without racing the audio thread.
+ */
+enum AdaptiveDecisionReason : uint32_t {
+    kDecisionActive          = 1u << 0,
+    kDecisionBudgetLimited   = 1u << 1,
+    kDecisionSafetyHint      = 1u << 2,
+    kDecisionTargetLimited   = 1u << 3,
+    kDecisionSilenceRecovery = 1u << 4,
+    kDecisionDisabledFade    = 1u << 5,
+    kDecisionContentAware    = 1u << 6
+};
+
+struct AdaptiveDecisionSnapshot {
+    uint64_t block_index = 0;
+    uint32_t bass_reasons = 0;
+    uint32_t preamp_reasons = 0;
+    uint32_t gain_reasons = 0;
+    uint32_t virtual_bass_reasons = 0;
+    float source_peak_db = -120.f;
+    float control_rms_db = -120.f;
+    float output_rms_db = -120.f;
+    float available_headroom_db = 0.f;
+    float bass_budget_db = 0.f;
+    float preamp_budget_db = 0.f;
+    float gain_budget_db = 0.f;
+    float bass_target_db = 0.f;
+    float bass_applied_db = 0.f;
+    float preamp_target_db = 0.f;
+    float preamp_applied_db = 0.f;
+    float gain_target_db = 0.f;
+    float gain_applied_db = 0.f;
+    float virtual_bass_target = 0.f;
+    float virtual_bass_applied = 0.f;
+    float limiter_reduction_db = 0.f;
+};
+
+class AdaptiveDecisionTelemetry {
+public:
+    void publish(const AdaptiveDecisionSnapshot& s) noexcept {
+        sequence_.fetch_add(1, std::memory_order_acq_rel); // writer active
+        block_index_.store(s.block_index, std::memory_order_relaxed);
+        bass_reasons_.store(s.bass_reasons, std::memory_order_relaxed);
+        preamp_reasons_.store(s.preamp_reasons, std::memory_order_relaxed);
+        gain_reasons_.store(s.gain_reasons, std::memory_order_relaxed);
+        virtual_bass_reasons_.store(s.virtual_bass_reasons, std::memory_order_relaxed);
+        source_peak_db_.store(s.source_peak_db, std::memory_order_relaxed);
+        control_rms_db_.store(s.control_rms_db, std::memory_order_relaxed);
+        output_rms_db_.store(s.output_rms_db, std::memory_order_relaxed);
+        available_headroom_db_.store(s.available_headroom_db, std::memory_order_relaxed);
+        bass_budget_db_.store(s.bass_budget_db, std::memory_order_relaxed);
+        preamp_budget_db_.store(s.preamp_budget_db, std::memory_order_relaxed);
+        gain_budget_db_.store(s.gain_budget_db, std::memory_order_relaxed);
+        bass_target_db_.store(s.bass_target_db, std::memory_order_relaxed);
+        bass_applied_db_.store(s.bass_applied_db, std::memory_order_relaxed);
+        preamp_target_db_.store(s.preamp_target_db, std::memory_order_relaxed);
+        preamp_applied_db_.store(s.preamp_applied_db, std::memory_order_relaxed);
+        gain_target_db_.store(s.gain_target_db, std::memory_order_relaxed);
+        gain_applied_db_.store(s.gain_applied_db, std::memory_order_relaxed);
+        virtual_bass_target_.store(s.virtual_bass_target, std::memory_order_relaxed);
+        virtual_bass_applied_.store(s.virtual_bass_applied, std::memory_order_relaxed);
+        limiter_reduction_db_.store(s.limiter_reduction_db, std::memory_order_relaxed);
+        sequence_.fetch_add(1, std::memory_order_release); // publish complete
+    }
+
+    bool read(AdaptiveDecisionSnapshot& out) const noexcept {
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            const uint32_t before = sequence_.load(std::memory_order_acquire);
+            if (before == 0 || (before & 1u)) continue;
+            out.block_index = block_index_.load(std::memory_order_relaxed);
+            out.bass_reasons = bass_reasons_.load(std::memory_order_relaxed);
+            out.preamp_reasons = preamp_reasons_.load(std::memory_order_relaxed);
+            out.gain_reasons = gain_reasons_.load(std::memory_order_relaxed);
+            out.virtual_bass_reasons = virtual_bass_reasons_.load(std::memory_order_relaxed);
+            out.source_peak_db = source_peak_db_.load(std::memory_order_relaxed);
+            out.control_rms_db = control_rms_db_.load(std::memory_order_relaxed);
+            out.output_rms_db = output_rms_db_.load(std::memory_order_relaxed);
+            out.available_headroom_db = available_headroom_db_.load(std::memory_order_relaxed);
+            out.bass_budget_db = bass_budget_db_.load(std::memory_order_relaxed);
+            out.preamp_budget_db = preamp_budget_db_.load(std::memory_order_relaxed);
+            out.gain_budget_db = gain_budget_db_.load(std::memory_order_relaxed);
+            out.bass_target_db = bass_target_db_.load(std::memory_order_relaxed);
+            out.bass_applied_db = bass_applied_db_.load(std::memory_order_relaxed);
+            out.preamp_target_db = preamp_target_db_.load(std::memory_order_relaxed);
+            out.preamp_applied_db = preamp_applied_db_.load(std::memory_order_relaxed);
+            out.gain_target_db = gain_target_db_.load(std::memory_order_relaxed);
+            out.gain_applied_db = gain_applied_db_.load(std::memory_order_relaxed);
+            out.virtual_bass_target = virtual_bass_target_.load(std::memory_order_relaxed);
+            out.virtual_bass_applied = virtual_bass_applied_.load(std::memory_order_relaxed);
+            out.limiter_reduction_db = limiter_reduction_db_.load(std::memory_order_relaxed);
+            const uint32_t after = sequence_.load(std::memory_order_acquire);
+            if (before == after) return true;
+        }
+        return false;
+    }
+
+private:
+    std::atomic<uint32_t> sequence_{0};
+    std::atomic<uint64_t> block_index_{0};
+    std::atomic<uint32_t> bass_reasons_{0}, preamp_reasons_{0}, gain_reasons_{0};
+    std::atomic<uint32_t> virtual_bass_reasons_{0};
+    std::atomic<float> source_peak_db_{-120.f}, control_rms_db_{-120.f}, output_rms_db_{-120.f};
+    std::atomic<float> available_headroom_db_{0.f}, bass_budget_db_{0.f};
+    std::atomic<float> preamp_budget_db_{0.f}, gain_budget_db_{0.f};
+    std::atomic<float> bass_target_db_{0.f}, bass_applied_db_{0.f};
+    std::atomic<float> preamp_target_db_{0.f}, preamp_applied_db_{0.f};
+    std::atomic<float> gain_target_db_{0.f}, gain_applied_db_{0.f};
+    std::atomic<float> virtual_bass_target_{0.f}, virtual_bass_applied_{0.f};
+    std::atomic<float> limiter_reduction_db_{0.f};
 };
 
 class AdaptiveController {

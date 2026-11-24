@@ -44,5 +44,23 @@ int main() {
     const float reduced = parameter_smoother.smooth_parameter(
         parameter, 0.0f, 48000.0f, 480, 0.35f, 0.18f);
     if (!(reduced < parameter && reduced > 0.0f)) return 9;
+    // Telemetry publishes a coherent, allocation-free latest-block snapshot.
+    dsp::AdaptiveDecisionTelemetry telemetry;
+    dsp::AdaptiveDecisionSnapshot published{};
+    published.block_index = 42;
+    published.bass_reasons = dsp::kDecisionActive | dsp::kDecisionBudgetLimited;
+    published.source_peak_db = -3.0f;
+    published.bass_target_db = 4.0f;
+    published.bass_applied_db = 2.5f;
+    published.limiter_reduction_db = 1.25f;
+    telemetry.publish(published);
+    dsp::AdaptiveDecisionSnapshot observed{};
+    if (!telemetry.read(observed)) return 10;
+    if (observed.block_index != 42) return 11;
+    if (observed.bass_reasons != published.bass_reasons) return 12;
+    if (std::fabs(observed.source_peak_db - published.source_peak_db) > 1.0e-6f) return 13;
+    if (std::fabs(observed.bass_target_db - 4.0f) > 1.0e-6f) return 14;
+    if (std::fabs(observed.bass_applied_db - 2.5f) > 1.0e-6f) return 15;
+    if (std::fabs(observed.limiter_reduction_db - 1.25f) > 1.0e-6f) return 16;
     return 0;
 }

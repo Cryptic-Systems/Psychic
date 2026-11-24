@@ -15,12 +15,26 @@ If duration is unknown, pass zero to `begin`; progress remains indeterminate unt
 
 The session rejects further input after completion or cancellation. A new scan can begin after a previous session has ended.
 
+## Track analysis cache
+
+`AdaptiveTrackAnalysisCache` in `src/core/track_analysis_cache.h` provides a bounded, thread-safe in-memory LRU cache for completed reports.
+
+The host supplies a `TrackCacheIdentity` containing:
+- `stable_id`: stable media-library ID or canonical URI/path.
+- `file_size_bytes`: current file size.
+- `modified_time_ns`: host-provided modification timestamp.
+- `content_fingerprint`: optional content hash/fingerprint.
+
+A cache lookup hits only when the stable ID and all revision fields match. If the stable ID exists but revision metadata differs, the old report is invalidated and the lookup misses. Storing a completed report under the changed identity replaces the old revision. Partial, cancelled, or insufficient-data reports are not cached. Capacity is bounded (default 256); least-recently-used entries are evicted when full. Explicit `invalidate(stable_id)` and `clear()` support media-library change events.
+
+The cache is deliberately memory-only. Psychic does not canonicalize paths, inspect timestamps, hash files, read metadata, persist records, or decide when to scan. Resonate remains responsible for supplying trustworthy identity/revision metadata, durable persistence if desired, and invalidation when its library detects a change. If reliable file revision metadata is unavailable, the host should supply a content fingerprint or invalidate explicitly.
+
 ## Threading and real-time boundaries
 
-The session synchronizes its own lifecycle and snapshots with a mutex. It is intended for one background producer and concurrent host/UI readers. The mutex is acceptable because this API is explicitly not real-time. Do not call it from `dsp_process`, an audio callback, or any latency-sensitive audio thread.
+The scan session and cache synchronize their lifecycle and snapshots with mutexes. They are intended for background work and concurrent host/UI readers. The mutexes are acceptable because these APIs are explicitly not real-time. Do not call them from `dsp_process`, an audio callback, or any latency-sensitive audio thread.
 
-The session retains only fixed-size histograms, scalar totals, filter state, and the final fixed-size report. It does not retain decoded PCM, perform file I/O, own a decoder, spawn threads, or allocate per block. The host owns file access, decoding, worker scheduling, cancellation policy, and persistence/cache decisions.
+The scanner retains only fixed-size histograms, scalar totals, filter state, and the final fixed-size report. The cache retains a bounded number of report snapshots and identity strings. Neither retains decoded PCM, performs file I/O, owns a decoder, spawns threads, nor participates in playback. The host owns file access, decoding, worker scheduling, cancellation policy, and durable cache storage.
 
 ## API status and compatibility
 
-This is an internal C++ host-side foundation, not yet a stable public API. It does not add C ABI symbols, change existing C structs, modify the Flutter package, or change Resonate integration identifiers. Public C/FFI exposure should be considered separately after the lifecycle and report semantics are exercised in the host application.
+These are internal C++ host-side foundations, not yet stable public APIs. They do not add C ABI symbols, change existing C structs, modify the Flutter package, or change Resonate integration identifiers. Public C/FFI exposure should be considered separately after lifecycle, cache invalidation, and report semantics are exercised in the host application.

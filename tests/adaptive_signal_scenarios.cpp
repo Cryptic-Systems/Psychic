@@ -1,7 +1,6 @@
 #include "core/adaptive_controller.h"
 
 #include <cmath>
-#include <cstdint>
 
 namespace {
 
@@ -44,7 +43,7 @@ int main() {
     ScenarioRunner compressed;
     dsp::AdaptiveTrackState compressed_state{};
     for (int block = 0; block < 900; ++block) {
-        compressed_state = compressed.block([block](int n) {
+        compressed_state = compressed.block([](int n) {
             const double modulation_db = 0.65 * std::sin(2.0 * kPi * 1.7 * n / kSampleRate);
             const double gain = std::pow(10.0, modulation_db / 20.0);
             return gain * (tone(n, 55.0, 0.12) + tone(n, 440.0, 0.08) +
@@ -87,7 +86,7 @@ int main() {
     dsp::AdaptiveTrackState fade_state{};
     bool rising_seen = false;
     for (int block = 0; block < 1200; ++block) {
-        fade_state = fade_in.block([block](int n) {
+        fade_state = fade_in.block([](int n) {
             const double elapsed = static_cast<double>(n) / kSampleRate;
             const double progress = std::fmin(1.0, elapsed / 8.0);
             const double gain = std::pow(10.0, (-30.0 + 24.0 * progress) / 20.0);
@@ -106,7 +105,7 @@ int main() {
     dsp::AdaptiveTrackState falling_state{};
     bool falling_seen = false;
     for (int block = 0; block < 1200; ++block) {
-        falling_state = fade_out.block([block](int n) {
+        falling_state = fade_out.block([](int n) {
             const double elapsed = static_cast<double>(n) / kSampleRate;
             const double progress = std::fmin(1.0, elapsed / 8.0);
             const double gain = std::pow(10.0, (-6.0 - 24.0 * progress) / 20.0);

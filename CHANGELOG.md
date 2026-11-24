@@ -2,6 +2,9 @@
 
 ## [Unreleased] — Adaptive Audio Control Engine
 ### Added
+- Confidence-rated advisory whole-track traits for consistent loudness, dynamic range, bass prominence, sustained transient density, quiet level, and section variability
+- Bounded crest-percentile and high-crest-duration statistics so transient-rich findings cannot be triggered by one isolated peak
+- Explainable review recommendations kept separate from DSP controls and playback processing
 - Rolling live track-state analysis with fast/slow loudness envelopes, loudness trend, rolling bass RMS, and bass prominence
 - Content-aware virtual-bass decisions now use rolling bass energy rather than a peak-hold transient meter
 - Transient-density-aware headroom budgeting that discounts isolated high-crest events while allowing recurring peaks to build sustained pressure

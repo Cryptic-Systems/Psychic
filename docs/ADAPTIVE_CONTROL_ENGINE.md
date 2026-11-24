@@ -112,6 +112,16 @@ A dedicated deterministic test covers mixed quiet/loud sections, silence, bass p
 
 1. Validate sustained-loudness gain-cut gating and decision telemetry against listening tests, then decide which stable diagnostics should be exposed to the host.
 2. Validate transient-density thresholds and attack/release against isolated clicks, percussion, clipped masters, and sustained overload material; then tune limiter recovery.
-3. Validate section-transition confidence and calibrated low-frequency balance against real music, then use the offline track profile as an advisory input for local-track analysis.
-4. Add listener and output-device profiles, with safety constraints always taking priority.
-5. Expose opt-in controls and observability to the host only after the internal behaviour is validated.
+3. Calibrate advisory track-trait thresholds against a wider licensed programme set and listening review; keep recommendations separate from processing controls.
+4. Design a host-facing local-track scan API only after the report semantics and lifecycle are validated.
+5. Add listener and output-device profiles, with safety constraints always taking priority.
+6. Expose opt-in controls and observability to the host only after the internal behaviour is validated.
+
+
+## Advisory whole-track intelligence
+
+`AdaptiveTrackIntelligence` converts the offline summary into a fixed-size report of descriptive signal traits: low-level/quiet, consistently loud, high dynamic range, bass prominent, transient rich, and section variable. Each finding carries a bounded confidence value and the underlying measurements used to support it. Transient-rich classification uses a high-crest percentile and the share of active programme time above a crest threshold; a single maximum peak is deliberately insufficient. The analyzer therefore also accumulates a bounded crest histogram and high-crest time ratio.
+
+Recommendations are cautious review prompts, not parameter changes. Examples include preserving dynamic range, reviewing low-frequency enhancement, retaining transient protection, and using conservative gain control on consistently loud material. A profile shorter than five seconds or with less than three seconds of active programme is reported as insufficient data. Silence does not create a profile. This stage is deterministic, fixed-size, offline-only, and does not affect the callback, C ABI, Flutter API, or playback settings. Thresholds are initial engineering heuristics, not trained labels or perceptual truth; validate them against broader programme material before exposing them to Resonate.
+
+The dedicated `track_intelligence_tests` target checks loud/steady and quiet/dynamic profiles, bass prominence, sustained crest density versus a single peak, section variability, insufficient data, and silence handling.

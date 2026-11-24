@@ -24,6 +24,8 @@ struct TrackAnalysisSummary {
     float sample_peak_db = -120.f;
     float mean_crest_db = 0.f;
     float max_crest_db = 0.f;
+    float crest_p90_db = 0.f;
+    float high_crest_seconds_ratio = 0.f;
     float loudness_p10_db = -120.f;
     float loudness_p50_db = -120.f;
     float loudness_p95_db = -120.f;
@@ -42,6 +44,8 @@ class AdaptiveTrackAnalyzer {
 public:
     void reset() noexcept {
         loudness_histogram_.fill(0.0);
+        crest_histogram_.fill(0.0);
+        high_crest_seconds_ = 0.0;
         duration_seconds_ = active_seconds_ = silence_seconds_ = 0.0;
         signal_energy_ = bass_energy_ = crest_time_sum_ = 0.0;
         sample_peak_db_ = -120.f;
@@ -72,6 +76,9 @@ public:
             const float crest = safe_peak - safe_rms;
             crest_time_sum_ += static_cast<double>(crest) * duration_seconds;
             max_crest_db_ = std::max(max_crest_db_, crest);
+            const int crest_bin = crest_histogram_bin(crest);
+            crest_histogram_[static_cast<std::size_t>(crest_bin)] += duration_seconds;
+            if (crest >= kHighCrestThresholdDb) high_crest_seconds_ += duration_seconds;
             const int bin = histogram_bin(safe_rms);
             loudness_histogram_[static_cast<std::size_t>(bin)] += duration_seconds;
         }
@@ -93,6 +100,9 @@ public:
         out.silence_seconds = silence_seconds_;
         out.sample_peak_db = sample_peak_db_;
         out.max_crest_db = max_crest_db_;
+        out.crest_p90_db = crest_percentile(0.90);
+        out.high_crest_seconds_ratio = active_seconds_ > 0.0
+            ? static_cast<float>(high_crest_seconds_ / active_seconds_) : 0.f;
         out.rising_seconds = rising_seconds_;
         out.falling_seconds = falling_seconds_;
         out.transition_seconds = transition_seconds_;
@@ -113,6 +123,7 @@ public:
 private:
     static constexpr float kSilenceThresholdDb = -60.f;
     static constexpr float kTransitionConfidenceFloor = 0.18f;
+    static constexpr float kHighCrestThresholdDb = 12.f;
     static constexpr int kHistogramMinimumDb = -120;
     static constexpr int kHistogramMaximumDb = 24;
     static constexpr std::size_t kHistogramBins =
@@ -124,8 +135,23 @@ private:
             std::min(kHistogramMaximumDb, rounded)) - kHistogramMinimumDb;
     }
 
+    static int crest_histogram_bin(float db) noexcept {
+        const int rounded = static_cast<int>(std::floor(db + 0.5f));
+        return std::max(0, std::min(36, rounded));
+    }
+
     static float to_db(double energy) noexcept {
         return static_cast<float>(10.0 * std::log10(std::max(1.0e-30, energy)));
+    }
+
+    float crest_percentile(double fraction) const noexcept {
+        const double target = active_seconds_ * fraction;
+        double accumulated = 0.0;
+        for (std::size_t i = 0; i < crest_histogram_.size(); ++i) {
+            accumulated += crest_histogram_[i];
+            if (accumulated >= target) return static_cast<float>(i);
+        }
+        return 36.f;
     }
 
     float percentile(double fraction) const noexcept {
@@ -141,12 +167,14 @@ private:
     }
 
     std::array<double, kHistogramBins> loudness_histogram_{};
+    std::array<double, 37> crest_histogram_{};
     double duration_seconds_ = 0.0;
     double active_seconds_ = 0.0;
     double silence_seconds_ = 0.0;
     double signal_energy_ = 0.0;
     double bass_energy_ = 0.0;
     double crest_time_sum_ = 0.0;
+    double high_crest_seconds_ = 0.0;
     float sample_peak_db_ = -120.f;
     float max_crest_db_ = 0.f;
     double rising_seconds_ = 0.0;

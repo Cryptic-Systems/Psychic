@@ -88,3 +88,15 @@ target_include_directories(adaptive_audio_evaluation PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 target_link_libraries(adaptive_audio_evaluation PRIVATE dsp_engine)
+
+# Deterministic, offline-only track intelligence classification tests.
+add_executable(track_intelligence_tests
+    track_intelligence_tests.cpp
+)
+target_include_directories(track_intelligence_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+if(NOT MSVC)
+    target_compile_options(track_intelligence_tests PRIVATE -fexceptions -frtti -fno-fast-math)
+endif()
+add_test(NAME track_intelligence_tests COMMAND track_intelligence_tests)

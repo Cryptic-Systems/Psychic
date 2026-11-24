@@ -1,6 +1,10 @@
 # Changelog
 
 ## [Unreleased] — Adaptive Audio Control Engine
+### Added
+- Internal per-block decision telemetry for adaptive subsystem reasons, requested/applied targets, shared headroom, loudness references, and limiter gain-reduction peak hold
+- Bounded lock-free snapshot reads using lock-free scalar atomics; no callback logging, allocation, or event queue
+
 
 ### Added
 - Internal AACE coordination layer for shared headroom allocation and time-based adaptive control smoothing

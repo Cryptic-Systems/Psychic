@@ -114,6 +114,7 @@ struct DspEngine {
     float meter_short_term_rms_db = -120.f;
     float meter_control_rms_db = -120.f;
     double rms_control_env_ms = 0.0;
+    double rms_control_bass_lp_z[kMaxChannels]{};
     double bass_lp_z = 0.0; /* mono one-pole for bass-band peak */
     double rms_env_ms = 0.0; /* mean-square envelope for short-term RMS */
 
@@ -270,6 +271,7 @@ struct DspEngine {
         meter_short_term_rms_db = -120.f;
         meter_control_rms_db = -120.f;
         rms_control_env_ms = 0.0;
+        std::memset(rms_control_bass_lp_z, 0, sizeof(rms_control_bass_lp_z));
         bass_lp_z = 0.0;
         rms_env_ms = 0.0;
     }
@@ -711,11 +713,18 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
     {
         double block_ms = 0.0;
         const int n = frames * ch;
-        for (int c = 0; c < ch; ++c)
+        for (int c = 0; c < ch; ++c) {
+            double& bass_lp = eng->rms_control_bass_lp_z[c];
             for (int i = 0; i < frames; ++i) {
                 const double x = static_cast<double>(eng->temp[c][i]);
-                block_ms += x * x;
+                bass_lp = (1.0 - bass_a) * x + bass_a * bass_lp;
+                const double low = bass_lp;
+                // Preserve most mid/high energy while de-emphasizing sub/bass
+                // so a bass-heavy passage does not dominate global loudness gain.
+                const double weighted = (x - low) + 0.35 * low;
+                block_ms += weighted * weighted;
             }
+        }
         block_ms /= std::max(1, n);
         const double win_sec = std::max(0.05, eng->auto_gain_window_ms * 0.001);
         const double coeff = 1.0 - std::exp(

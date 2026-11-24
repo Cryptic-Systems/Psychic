@@ -21,6 +21,14 @@ static_assert(std::atomic<uint32_t>::is_always_lock_free,
 static_assert(std::atomic<float>::is_always_lock_free,
               "AACE telemetry requires lock-free float atomics");
 
+struct AdaptiveTrackState {
+    float short_rms_db = -120.f;
+    float long_rms_db = -120.f;
+    float bass_rms_db = -120.f;
+    float loudness_trend_db = 0.f;
+    float bass_prominence_db = -120.f;
+};
+
 struct AdaptiveHeadroomBudget {
     float available_db = 0.f;
     float budget_peak_db = -120.f;
@@ -51,6 +59,11 @@ struct AdaptiveDecisionSnapshot {
     uint32_t virtual_bass_reasons = 0;
     float source_peak_db = -120.f;
     float source_rms_db = -120.f;
+    float track_short_rms_db = -120.f;
+    float track_long_rms_db = -120.f;
+    float track_bass_rms_db = -120.f;
+    float track_loudness_trend_db = 0.f;
+    float track_bass_prominence_db = -120.f;
     float budget_peak_db = -120.f;
     float control_rms_db = -120.f;
     float output_rms_db = -120.f;
@@ -80,6 +93,11 @@ public:
         virtual_bass_reasons_.store(s.virtual_bass_reasons, std::memory_order_relaxed);
         source_peak_db_.store(s.source_peak_db, std::memory_order_relaxed);
         source_rms_db_.store(s.source_rms_db, std::memory_order_relaxed);
+        track_short_rms_db_.store(s.track_short_rms_db, std::memory_order_relaxed);
+        track_long_rms_db_.store(s.track_long_rms_db, std::memory_order_relaxed);
+        track_bass_rms_db_.store(s.track_bass_rms_db, std::memory_order_relaxed);
+        track_loudness_trend_db_.store(s.track_loudness_trend_db, std::memory_order_relaxed);
+        track_bass_prominence_db_.store(s.track_bass_prominence_db, std::memory_order_relaxed);
         budget_peak_db_.store(s.budget_peak_db, std::memory_order_relaxed);
         control_rms_db_.store(s.control_rms_db, std::memory_order_relaxed);
         output_rms_db_.store(s.output_rms_db, std::memory_order_relaxed);
@@ -110,6 +128,11 @@ public:
             out.virtual_bass_reasons = virtual_bass_reasons_.load(std::memory_order_relaxed);
             out.source_peak_db = source_peak_db_.load(std::memory_order_relaxed);
             out.source_rms_db = source_rms_db_.load(std::memory_order_relaxed);
+            out.track_short_rms_db = track_short_rms_db_.load(std::memory_order_relaxed);
+            out.track_long_rms_db = track_long_rms_db_.load(std::memory_order_relaxed);
+            out.track_bass_rms_db = track_bass_rms_db_.load(std::memory_order_relaxed);
+            out.track_loudness_trend_db = track_loudness_trend_db_.load(std::memory_order_relaxed);
+            out.track_bass_prominence_db = track_bass_prominence_db_.load(std::memory_order_relaxed);
             out.budget_peak_db = budget_peak_db_.load(std::memory_order_relaxed);
             out.control_rms_db = control_rms_db_.load(std::memory_order_relaxed);
             out.output_rms_db = output_rms_db_.load(std::memory_order_relaxed);
@@ -138,6 +161,9 @@ private:
     std::atomic<uint32_t> bass_reasons_{0}, preamp_reasons_{0}, gain_reasons_{0};
     std::atomic<uint32_t> virtual_bass_reasons_{0};
     std::atomic<float> source_peak_db_{-120.f}, source_rms_db_{-120.f};
+    std::atomic<float> track_short_rms_db_{-120.f}, track_long_rms_db_{-120.f};
+    std::atomic<float> track_bass_rms_db_{-120.f}, track_loudness_trend_db_{0.f};
+    std::atomic<float> track_bass_prominence_db_{-120.f};
     std::atomic<float> budget_peak_db_{-120.f};
     std::atomic<float> control_rms_db_{-120.f}, output_rms_db_{-120.f};
     std::atomic<float> available_headroom_db_{0.f}, bass_budget_db_{0.f};
@@ -154,7 +180,44 @@ public:
     void reset() noexcept {
         smoothed_headroom_db_ = 0.f;
         transient_density_ = 0.f;
+        track_short_ms_ = track_long_ms_ = track_bass_ms_ = 0.0;
+        track_state_initialized_ = false;
         initialized_ = false;
+    }
+
+    /*
+     * Update compact rolling track state from post-EQ block mean-square
+     * measurements. The fast/slow loudness envelopes expose section trends;
+     * the bass envelope prevents one kick transient from defining content.
+     */
+    AdaptiveTrackState update_track_state(double source_mean_square,
+                                          double bass_mean_square,
+                                          float sample_rate,
+                                          int frames) noexcept {
+        const double dt = (sample_rate > 0.f && frames > 0)
+            ? static_cast<double>(frames) / sample_rate : 0.01;
+        const double source_ms = std::max(1.0e-30, source_mean_square);
+        const double bass_ms = std::max(1.0e-30, bass_mean_square);
+        const double fast_alpha = 1.0 - std::exp(-dt / kTrackFastSeconds);
+        const double slow_alpha = 1.0 - std::exp(-dt / kTrackSlowSeconds);
+        const double bass_alpha = 1.0 - std::exp(-dt / kTrackBassSeconds);
+        if (!track_state_initialized_) {
+            track_short_ms_ = source_ms;
+            track_long_ms_ = source_ms;
+            track_bass_ms_ = bass_ms;
+            track_state_initialized_ = true;
+        } else {
+            track_short_ms_ += fast_alpha * (source_ms - track_short_ms_);
+            track_long_ms_ += slow_alpha * (source_ms - track_long_ms_);
+            track_bass_ms_ += bass_alpha * (bass_ms - track_bass_ms_);
+        }
+        AdaptiveTrackState out{};
+        out.short_rms_db = static_cast<float>(10.0 * std::log10(std::max(1.0e-30, track_short_ms_)));
+        out.long_rms_db = static_cast<float>(10.0 * std::log10(std::max(1.0e-30, track_long_ms_)));
+        out.bass_rms_db = static_cast<float>(10.0 * std::log10(std::max(1.0e-30, track_bass_ms_)));
+        out.loudness_trend_db = out.short_rms_db - out.long_rms_db;
+        out.bass_prominence_db = out.bass_rms_db - out.short_rms_db;
+        return out;
     }
 
     /*
@@ -253,6 +316,9 @@ public:
     }
 
 private:
+    static constexpr double kTrackFastSeconds = 0.45;
+    static constexpr double kTrackSlowSeconds = 3.0;
+    static constexpr double kTrackBassSeconds = 1.2;
     static constexpr float kTransientReserveDb = 0.5f;
     static constexpr float kTransientCrestThresholdDb = 12.f;
     static constexpr float kTransientDensityAttackSeconds = 0.35f;
@@ -264,6 +330,10 @@ private:
 
     float smoothed_headroom_db_ = 0.f;
     float transient_density_ = 0.f;
+    double track_short_ms_ = 0.0;
+    double track_long_ms_ = 0.0;
+    double track_bass_ms_ = 0.0;
+    bool track_state_initialized_ = false;
     bool initialized_ = false;
 };
 

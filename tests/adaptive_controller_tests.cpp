@@ -34,5 +34,16 @@ int main() {
     // Recovery is smooth and heads toward unity without a discontinuity.
     const float recovered = smooth_a.smooth_gain(a, 0.0f, 48000.0f, 480);
     assert(recovered > a && recovered < 0.0f);
+
+    // Bass/preamp parameter smoothing also respects elapsed audio time.
+    dsp::AdaptiveController parameter_smoother;
+    float parameter = 0.0f;
+    for (int i = 0; i < 10; ++i)
+        parameter = parameter_smoother.smooth_parameter(
+            parameter, 6.0f, 48000.0f, 480, 0.35f, 0.18f);
+    assert(parameter > 0.0f && parameter < 6.0f);
+    const float reduced = parameter_smoother.smooth_parameter(
+        parameter, 0.0f, 48000.0f, 480, 0.35f, 0.18f);
+    assert(reduced < parameter && reduced > 0.0f);
     return 0;
 }

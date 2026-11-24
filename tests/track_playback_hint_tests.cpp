@@ -1,6 +1,7 @@
 #include "core/track_playback_hint.h"
 
 #include <cmath>
+#include <cstdio>
 #include <limits>
 
 using namespace dsp;
@@ -20,48 +21,48 @@ static TrackScanSnapshot completed_scan() {
 int main() {
     TrackPlaybackHint hint{};
     auto scan = completed_scan();
-    if (!make_track_playback_hint(scan, &hint)) return 1;
-    if (std::fabs(hint.analysis.bass_energy_db + 22.f) > 1e-5f) return 2;
-    if (std::fabs(hint.analysis.crest_db - 11.5f) > 1e-5f) return 3;
-    if (hint.max_safe_bass_db != 24.f) return 4;
+    if (!make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 1\n"); return 1; }
+    if (std::fabs(hint.analysis.bass_energy_db + 22.f) > 1e-5f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 2\n"); return 2; }
+    if (std::fabs(hint.analysis.crest_db - 11.5f) > 1e-5f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 3\n"); return 3; }
+    if (hint.max_safe_bass_db != 24.f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 4\n"); return 4; }
 
     // The adapter cannot promote partial or insufficient scans to hints.
     scan.state = TrackScanState::Scanning;
-    if (make_track_playback_hint(scan, &hint)) return 5;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 5\n"); return 5; }
     scan = completed_scan();
     scan.report_ready = false;
-    if (make_track_playback_hint(scan, &hint)) return 6;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 6\n"); return 6; }
     scan = completed_scan();
     scan.intelligence.sufficient_data = false;
-    if (make_track_playback_hint(scan, &hint)) return 7;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 7\n"); return 7; }
 
     // Malformed scanner metrics fail closed; outputs are not partially written.
     scan = completed_scan();
     scan.analysis.bass_rms_db = std::numeric_limits<float>::quiet_NaN();
     hint.analysis.crest_db = 77.f;
-    if (make_track_playback_hint(scan, &hint)) return 8;
-    if (hint.analysis.crest_db != 77.f) return 9;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 8\n"); return 8; }
+    if (hint.analysis.crest_db != 77.f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 9\n"); return 9; }
     scan = completed_scan();
     scan.analysis.mean_crest_db = std::numeric_limits<float>::infinity();
-    if (make_track_playback_hint(scan, &hint)) return 10;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 10\n"); return 10; }
 
     // Bounded conversion prevents extreme but finite values from escaping.
     scan = completed_scan();
     scan.analysis.bass_rms_db = 30.f;
     scan.analysis.mean_crest_db = 60.f;
-    if (!make_track_playback_hint(scan, &hint)) return 11;
+    if (!make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 11\n"); return 11; }
     if (hint.analysis.bass_energy_db != 24.f ||
-        hint.analysis.crest_db != 24.f) return 12;
+        hint.analysis.crest_db != 24.f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 12\n"); return 12; }
 
     if (apply_track_playback_hint(nullptr, completed_scan()) !=
-        DSP_ERR_INVALID_ARG) return 13;
+        DSP_ERR_INVALID_ARG) { std::fprintf(stderr, "track_playback_hint_tests failure at check 13\n"); return 13; }
 
     DspConfig config{};
     config.sample_rate = 48000.f;
     config.channels = 2;
     config.max_block = 1024;
     DspEngine* engine = dsp_create(&config);
-    if (!engine) return 14;
+    if (!engine) { std::fprintf(stderr, "track_playback_hint_tests failure at check 14\n"); return 14; }
     if (apply_track_playback_hint(engine, completed_scan()) != DSP_OK) {
         dsp_destroy(engine);
         return 15;

@@ -612,7 +612,8 @@ TEST(auto_gain_default_cut_is_enforced) {
         in[i * 2] = s;
         in[i * 2 + 1] = s;
     }
-    for (int n = 0; n < 120; ++n)
+    // Allow the 3 s sustained-level reference and cut confidence to settle.
+    for (int n = 0; n < 600; ++n)
         EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
 
     const float applied = dsp_auto_gain_get_applied_db(eng);

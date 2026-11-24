@@ -1,4 +1,4 @@
-# Unit tests and benchmarks for DSP ENGINE
+# Unit tests and benchmarks for Psychic
 
 add_executable(unit_tests
     unit_tests.cpp

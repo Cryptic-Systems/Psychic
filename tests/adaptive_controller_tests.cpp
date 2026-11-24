@@ -213,10 +213,6 @@ int main() {
 
     // The persistence reference is elapsed-time based, not callback-count based.
     dsp::AdaptiveController cut_small, cut_large;
-    const auto initial_small = cut_small.update_track_state(
-        quiet_power, quiet_power * 0.1, 48000.f, 480);
-    const auto initial_large = cut_large.update_track_state(
-        quiet_power, quiet_power * 0.1, 48000.f, 480);
     cut_small.update_gain_cut_confidence(-30.f, -18.f, 0.f, 48000.f, 480);
     cut_large.update_gain_cut_confidence(-30.f, -18.f, 0.f, 48000.f, 480);
     float small_cut = 0.f, large_cut = 0.f;

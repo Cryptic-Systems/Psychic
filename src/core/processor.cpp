@@ -726,6 +726,7 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
      * virtual bass and auto-preamp. This prevents those enhancements from
      * making auto-gain counteract its own peers.
      */
+    double control_bass_ms = 0.0;
     {
         double block_ms = 0.0;
         const int n = frames * ch;
@@ -735,6 +736,7 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
                 const double x = static_cast<double>(eng->temp[c][i]);
                 bass_lp = (1.0 - bass_a) * x + bass_a * bass_lp;
                 const double low = bass_lp;
+                control_bass_ms += low * low;
                 // Preserve most mid/high energy while de-emphasizing sub/bass
                 // so a bass-heavy passage does not dominate global loudness gain.
                 const double weighted = (x - low) + 0.35 * low;
@@ -742,6 +744,7 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
             }
         }
         block_ms /= std::max(1, n);
+        control_bass_ms /= std::max(1, n);
         const double win_sec = std::max(0.05, eng->auto_gain_window_ms * 0.001);
         const double coeff = 1.0 - std::exp(
             -static_cast<double>(frames) / (win_sec * eng->sample_rate));
@@ -771,6 +774,14 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
         static_cast<float>(std::sqrt(std::max(1.0e-30, source_ms))));
     decision.source_peak_db = source_peak_db;
     decision.source_rms_db = source_rms_db;
+    const dsp::AdaptiveTrackState track_state =
+        eng->adaptive_controller.update_track_state(
+            source_ms, control_bass_ms, eng->sample_rate, frames);
+    decision.track_short_rms_db = track_state.short_rms_db;
+    decision.track_long_rms_db = track_state.long_rms_db;
+    decision.track_bass_rms_db = track_state.bass_rms_db;
+    decision.track_loudness_trend_db = track_state.loudness_trend_db;
+    decision.track_bass_prominence_db = track_state.bass_prominence_db;
     decision.control_rms_db = eng->meter_control_rms_db;
     const dsp::AdaptiveHeadroomBudget adaptive_budget =
         eng->adaptive_controller.allocate_headroom(
@@ -829,7 +840,9 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
 
     /* Content-aware virtual bass: reduce when track already has strong sub. */
     if (eng->auto_vb_enabled && eng->speaker_enabled) {
-        float content = eng->meter_bass_peak_db;
+        // Use rolling bass energy rather than a peak-hold meter so one kick
+        // cannot suppress virtual bass for the following passage.
+        float content = track_state.bass_rms_db;
         if (eng->hint_bass_energy_db > content) content = eng->hint_bass_energy_db;
         /* Map content peak: quiet bass (-40) → full target; loud (-6) → ~0 */
         float t = (content + 40.f) / 34.f; /* -40..-6 → 0..1 */

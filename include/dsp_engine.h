@@ -1,11 +1,15 @@
 /**
- * DSP ENGINE — Public C ABI
+ * Psychic — Public C ABI (`dsp_*`)
  *
- * Highly optimized 64-bit processing engine with Direct Volume Control (DVC),
- * multi-band parametric EQ, true-peak / two-band limiter, preamp, speaker-mode
- * virtual bass, dither, sample-rate conversion, and optional platform backends.
+ * Adaptive 64-bit audio DSP engine: Direct Volume Control (DVC), multi-band
+ * parametric EQ, true-peak / two-band limiter, preamp, speaker-mode virtual bass,
+ * dither, sample-rate conversion, intelligent headroom / auto-bass / auto-DVC,
+ * and optional platform backends.
  *
- * Version 0.6.0 — Full intelligent stack (budget, auto-VB, auto-preamp, crest, silence)
+ * Product: Psychic · Version 0.6.1 — Full intelligent stack
+ * (budget, auto-VB, auto-preamp, crest, silence)
+ *
+ * C symbol prefix remains `dsp_*` for ABI stability with existing hosts (Resonate).
  *
  * THREAD SAFETY
  * -------------

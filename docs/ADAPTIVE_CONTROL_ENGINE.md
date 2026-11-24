@@ -89,7 +89,7 @@ The limiter field is its existing peak-held gain-reduction meter, not a per-samp
 
 ## Validation
 
-A focused unit-test target covers weighted headroom allocation, isolated-versus-repeated high-crest events, rolling loudness/bass envelopes, telemetry coherence, and block-size-independent smoothing.
+A focused unit-test target covers weighted headroom allocation, isolated-versus-repeated high-crest events, rolling loudness/bass envelopes, telemetry coherence, and block-size-independent smoothing. Section-transition tests additionally exercise abrupt level steps, a gradual fade, return to steady state after a step, direction reversal, isolated transients, modulation noise, and bass-only balance changes. These deterministic tests validate the detector's response to controlled block-energy patterns; they do not replace listening tests on real programme material.
 
 Before merging, run the complete CMake build and test suite on the supported CI platforms, then run listening comparisons with:
 - isolated transient peaks;

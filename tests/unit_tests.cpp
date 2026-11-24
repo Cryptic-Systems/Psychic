@@ -1,5 +1,5 @@
 /**
- * Unit tests for DSP ENGINE v0.6.0
+ * Unit tests for Psychic v0.6.1
  */
 
 #include "test_framework.h"

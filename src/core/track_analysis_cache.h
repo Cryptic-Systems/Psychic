@@ -19,13 +19,9 @@
 namespace dsp {
 
 struct TrackCacheIdentity {
-    // Stable host-owned media-library ID or canonical URI/path.
     std::string stable_id;
-    // Revision metadata supplied by the host. A changed value invalidates
-    // the prior report even when stable_id remains unchanged.
     uint64_t file_size_bytes = 0;
     int64_t modified_time_ns = 0;
-    // Optional content hash/fingerprint; empty when the host has none.
     std::string content_fingerprint;
 
     bool valid() const noexcept { return !stable_id.empty(); }
@@ -49,8 +45,8 @@ struct TrackAnalysisCacheStats {
 
 /*
  * Bounded LRU cache of completed scan snapshots. No persistence is performed;
- * the host remains responsible for durable storage and cache invalidation on
- * media-library events. All methods are synchronized and non-real-time.
+ * the host remains responsible for durable storage and media-library events.
+ * All methods are synchronized and non-real-time.
  */
 class AdaptiveTrackAnalysisCache {
 public:
@@ -78,11 +74,13 @@ public:
         return false;
     }
 
+    // May allocate while copying host identity or growing the bounded vector;
+    // intentionally not noexcept. Call only from host/background code.
     bool store(const TrackCacheIdentity& identity,
-               const TrackScanSnapshot& snapshot) noexcept {
+               const TrackScanSnapshot& snapshot) {
         if (!identity.valid() ||
             snapshot.state != TrackScanState::Completed ||
-            !snapshot.report_ready || !snapshot.intelligence.sufficient_data)
+            !snapshot.report_ready)
             return false;
 
         std::lock_guard<std::mutex> lock(mutex_);

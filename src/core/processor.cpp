@@ -639,6 +639,7 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
     decision.block_index = ++eng->adaptive_block_index;
     uint32_t bass_reasons = 0, preamp_reasons = 0;
     uint32_t gain_reasons = 0, vb_reasons = 0;
+    bool silence_recovery_active = false;
     float bass_target_db = eng->auto_bass_applied_db;
     float preamp_target_db = eng->auto_preamp_applied_db;
     float gain_target_db = eng->auto_gain_applied_db;
@@ -902,6 +903,9 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
         if (eng->meter_short_term_rms_db < eng->silence_thresh_db) {
             eng->silence_hold_acc_ms += block_ms_f;
             if (eng->silence_hold_acc_ms >= eng->silence_hold_ms) {
+                silence_recovery_active = true;
+                bass_target_db = 0.f;
+                preamp_target_db = 0.f;
                 if (std::fabs(eng->auto_bass_applied_db) > 0.001f) bass_reasons |= dsp::kDecisionSilenceRecovery;
                 if (std::fabs(eng->auto_preamp_applied_db) > 0.001f) preamp_reasons |= dsp::kDecisionSilenceRecovery;
                 if (std::fabs(eng->auto_gain_applied_db) > 0.001f) gain_reasons |= dsp::kDecisionSilenceRecovery;
@@ -917,9 +921,11 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
 
     /* Auto-DVC: short-term RMS → target, capped by gain budget share. */
     if (eng->auto_gain_enabled) {
-        float err = (eng->auto_gain_target_rms_db + eng->auto_gain_bias_db)
-                    - eng->meter_control_rms_db;
+        float err = silence_recovery_active ? 0.f :
+            (eng->auto_gain_target_rms_db + eng->auto_gain_bias_db)
+                - eng->meter_control_rms_db;
         gain_reasons |= dsp::kDecisionActive;
+        if (silence_recovery_active) gain_reasons |= dsp::kDecisionSilenceRecovery;
         if (err > eng->auto_gain_max_boost_db) { err = eng->auto_gain_max_boost_db; gain_reasons |= dsp::kDecisionTargetLimited; }
         if (err < -eng->auto_gain_max_cut_db) { err = -eng->auto_gain_max_cut_db; gain_reasons |= dsp::kDecisionTargetLimited; }
         if (err > gain_share) { err = gain_share; gain_reasons |= dsp::kDecisionBudgetLimited; }

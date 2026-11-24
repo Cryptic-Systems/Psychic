@@ -60,7 +60,7 @@ The control RMS also applies a gentle low-frequency de-emphasis below roughly 12
 
 Auto-gain, auto-bass, auto-preamp, and virtual-bass targets are smoothed using elapsed audio time rather than fixed per-block coefficients. Gain reduction and recovery use different time constants. Bass and preamp reductions move faster than increases; increases ease in more gradually.
 
-Auto-gain now defaults to a 3 dB maximum cut. The broader six-track evaluation showed that the 6 dB setting held the gain servo at its cut ceiling for most active blocks in the electronic and highly compressed samples (93.4% and 87.3% of blocks were more than 3 dB below the limiter-only baseline in the full adaptive stress profile). A 3 dB default is a more conservative starting point for already-mastered material; hosts can still explicitly request deeper cuts (up to 24 dB) when stronger loudness normalization is desired. This is a gain-level guardrail, not a replacement for the limiter or a reduction in peak protection. Signal measurements do not establish perceived pumping, so the default still needs listening validation across broader programme material.
+Auto-gain now defaults to a 3 dB maximum cut. In addition, the negative side of the gain servo is gated by a separate 3 s reference of the same bass-de-emphasized control RMS used by the servo. A cut begins to earn confidence only when that sustained reference is more than 1.5 dB above the requested target, reaching full confidence across the next 6 dB. Confidence is eased back during rising/falling section transitions, so a brief loud section does not immediately receive the full cut allowance. This policy affects cuts only: positive gain remains governed by the shared headroom allocator, and the anticipatory hint remains diagnostic-only. The broader six-track evaluation showed that the 6 dB setting held the gain servo at its cut ceiling for most active blocks in the electronic and highly compressed samples (93.4% and 87.3% of blocks were more than 3 dB below the limiter-only baseline in the full adaptive stress profile). A 3 dB default is a more conservative starting point for already-mastered material; hosts can still explicitly request deeper cuts (up to 24 dB) when stronger loudness normalization is desired. This is a gain-level guardrail, not a replacement for the limiter or a reduction in peak protection. Signal measurements do not establish perceived pumping, so the default still needs listening validation across broader programme material.
 
 ## Decision telemetry
 
@@ -69,6 +69,7 @@ AACE now publishes a latest-block decision snapshot into fixed-size atomic state
 - pre-enhancement control RMS and post-enhancement/pre-DVC RMS;
 - available shared headroom and the bass, preamp, and gain allocations;
 - requested target and applied value for auto-bass, auto-preamp, auto-gain, and virtual bass;
+- sustained-loudness confidence and the effective per-block auto-gain cut limit;
 - limiter gain-reduction peak-hold value;
 - reason flags for each adaptive subsystem.
 
@@ -76,7 +77,7 @@ Reason flags currently identify active control, shared-budget limitation, safety
 
 The snapshot uses lock-free 32-bit and float atomics with a sequence counter. The audio thread only writes fixed scalar fields; readers retry a bounded number of times and never block the callback. No event queue, allocation, logging, or I/O is performed in the callback. The snapshot is internal and is not yet exposed through the public C ABI or Flutter binding; that API decision is deferred until the telemetry fields and semantics have been validated.
 
-The limiter field is its existing peak-held gain-reduction meter, not a per-sample or per-block instantaneous GR trace. The output RMS field is measured after adaptive bass/preamp and before auto-gain DVC and limiting. Rolling telemetry additionally reports fast and slow post-EQ RMS, their dB difference as a loudness trend, rolling low-band RMS, bass prominence relative to full-band RMS, a confidence-qualified rising/falling/steady section state, and the bounded anticipatory gain hint.
+The limiter field is its existing peak-held gain-reduction meter, not a per-sample or per-block instantaneous GR trace. Gain-cut confidence is derived from a separate 3 s envelope of the bass-de-emphasized control RMS and is reduced during confidence-qualified section transitions; its effective cut limit is published alongside the existing requested/applied gain telemetry. The output RMS field is measured after adaptive bass/preamp and before auto-gain DVC and limiting. Rolling telemetry additionally reports fast and slow post-EQ RMS, their dB difference as a loudness trend, rolling low-band RMS, bass prominence relative to full-band RMS, a confidence-qualified rising/falling/steady section state, and the bounded anticipatory gain hint.
 
 ## Real-time and compatibility constraints
 
@@ -103,7 +104,7 @@ Record limiter gain reduction, auto-gain applied dB, auto-bass applied dB, pream
 
 ## Next AACE stages
 
-1. Validate decision telemetry against listening tests, then decide which stable diagnostics should be exposed to the host.
+1. Validate sustained-loudness gain-cut gating and decision telemetry against listening tests, then decide which stable diagnostics should be exposed to the host.
 2. Validate transient-density thresholds and attack/release against isolated clicks, percussion, clipped masters, and sustained overload material; then tune limiter recovery.
 3. Validate section-transition confidence and calibrated low-frequency balance against real music, then add richer pre-analysis hints for local tracks.
 4. Add listener and output-device profiles, with safety constraints always taking priority.

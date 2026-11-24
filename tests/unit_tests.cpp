@@ -622,6 +622,48 @@ TEST(auto_gain_default_cut_is_enforced) {
     dsp_destroy(eng);
 }
 
+TEST(auto_gain_cut_waits_for_sustained_level) {
+    DspEngine* eng = create_engine();
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_EQ(dsp_eq_enable(eng, 0), DSP_OK);
+    EXPECT_EQ(dsp_limiter_enable(eng, 0), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_set_target_rms_db(eng, -18.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_enable(eng, 1), DSP_OK);
+
+    const int frames = 1024;
+    std::vector<float> in(frames * 2), out(frames * 2);
+    int sample_index = 0;
+    auto process_tone = [&](float amplitude, int blocks) {
+        for (int block = 0; block < blocks; ++block) {
+            for (int i = 0; i < frames; ++i, ++sample_index) {
+                const float phase = 2.f * 3.14159265f * 1000.f *
+                    static_cast<float>(sample_index) / 48000.f;
+                const float sample = amplitude * std::sin(phase);
+                in[i * 2] = sample;
+                in[i * 2 + 1] = sample;
+            }
+            EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+        }
+    };
+
+    // Establish a quiet programme and let positive gain reach its boost cap.
+    process_tone(0.03f, 250);
+    EXPECT_TRUE(dsp_auto_gain_get_applied_db(eng) > 4.f);
+
+    // The first second of a new loud section should not receive the full cut.
+    process_tone(0.5f, 50);
+    const float transition_gain = dsp_auto_gain_get_applied_db(eng);
+
+    // Once the loud level is sustained and the transition settles, the
+    // configured conservative cut allowance can be used.
+    process_tone(0.5f, 500);
+    const float sustained_gain = dsp_auto_gain_get_applied_db(eng);
+    EXPECT_TRUE(transition_gain > sustained_gain + 1.0f);
+    EXPECT_TRUE(sustained_gain <= -2.5f);
+    EXPECT_TRUE(sustained_gain >= -3.1f);
+    dsp_destroy(eng);
+}
+
 TEST(auto_gain_rms) {
     DspEngine* eng = create_engine();
     EXPECT_EQ(dsp_limiter_enable(eng, 1), DSP_OK);

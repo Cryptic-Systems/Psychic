@@ -125,3 +125,10 @@ A dedicated deterministic test covers mixed quiet/loud sections, silence, bass p
 Recommendations are cautious review prompts, not parameter changes. Examples include preserving dynamic range, reviewing low-frequency enhancement, retaining transient protection, and using conservative gain control on consistently loud material. A profile shorter than five seconds or with less than three seconds of active programme is reported as insufficient data. Silence does not create a profile. This stage is deterministic, fixed-size, offline-only, and does not affect the callback, C ABI, Flutter API, or playback settings. Thresholds are initial engineering heuristics, not trained labels or perceptual truth; validate them against broader programme material before exposing them to Resonate.
 
 The dedicated `track_intelligence_tests` target checks loud/steady and quiet/dynamic profiles, bass prominence, sustained crest density versus a single peak, section variability, insufficient data, and silence handling. The offline full-engine evaluator now prints the report's findings, confidence values, evidence metrics, and advisory text alongside the raw track profile.
+
+
+## Advisory classifier calibration and input validation
+
+The current confidence ramps are explicit engineering heuristics, not learned probabilities. A calibration regression target probes threshold, midpoint, and saturation behaviour for loudness consistency, dynamic range, bass prominence, crest density, section variability, and quiet level. These tests guard intended monotonic response and make future threshold changes reviewable. They do not establish perceptual accuracy or replace listening validation on a representative licensed programme set.
+
+Before classification, the report validates profile duration, active/silence/transition time, finite metric values, expected metric ranges, and loudness percentile ordering. Malformed or non-finite summaries fail closed as insufficient data rather than producing misleading high-confidence findings. This also protects future callers that may construct summaries independently of the current analyzer.

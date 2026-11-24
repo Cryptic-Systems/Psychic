@@ -16,6 +16,11 @@
 
 namespace dsp {
 
+static_assert(std::atomic<uint32_t>::is_always_lock_free,
+              "AACE telemetry requires lock-free 32-bit atomics");
+static_assert(std::atomic<float>::is_always_lock_free,
+              "AACE telemetry requires lock-free float atomics");
+
 struct AdaptiveHeadroomBudget {
     float available_db = 0.f;
     float bass_db = 0.f;
@@ -38,7 +43,7 @@ enum AdaptiveDecisionReason : uint32_t {
 };
 
 struct AdaptiveDecisionSnapshot {
-    uint64_t block_index = 0;
+    uint32_t block_index = 0;
     uint32_t bass_reasons = 0;
     uint32_t preamp_reasons = 0;
     uint32_t gain_reasons = 0;
@@ -122,7 +127,7 @@ public:
 
 private:
     std::atomic<uint32_t> sequence_{0};
-    std::atomic<uint64_t> block_index_{0};
+    std::atomic<uint32_t> block_index_{0};
     std::atomic<uint32_t> bass_reasons_{0}, preamp_reasons_{0}, gain_reasons_{0};
     std::atomic<uint32_t> virtual_bass_reasons_{0};
     std::atomic<float> source_peak_db_{-120.f}, control_rms_db_{-120.f}, output_rms_db_{-120.f};

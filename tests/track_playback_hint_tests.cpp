@@ -55,5 +55,28 @@ int main() {
 
     if (apply_track_playback_hint(nullptr, completed_scan()) !=
         DSP_ERR_INVALID_ARG) return 13;
+
+    DspEngine* engine = dsp_create(nullptr);
+    if (!engine) return 14;
+    if (apply_track_playback_hint(engine, completed_scan()) != DSP_OK) {
+        dsp_destroy(engine);
+        return 15;
+    }
+    if (std::fabs(dsp_limiter_get_crest_hint(engine) - 11.5f) > 1e-4f) {
+        dsp_destroy(engine);
+        return 16;
+    }
+    // A rejected scan must not overwrite the last valid playback hint.
+    auto invalid = completed_scan();
+    invalid.report_ready = false;
+    if (apply_track_playback_hint(engine, invalid) != DSP_ERR_INVALID_ARG) {
+        dsp_destroy(engine);
+        return 17;
+    }
+    if (std::fabs(dsp_limiter_get_crest_hint(engine) - 11.5f) > 1e-4f) {
+        dsp_destroy(engine);
+        return 18;
+    }
+    dsp_destroy(engine);
     return 0;
 }

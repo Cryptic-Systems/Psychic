@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install deps
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build ffmpeg
       - name: Configure
         run: |
           cmake -B build -G Ninja \
@@ -29,6 +29,21 @@ jobs:
         run: cmake --build build -j$(nproc)
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure --timeout 60
+      - name: Full-engine audio evaluation
+        run: |
+          mkdir -p build/audio-evaluation
+          for f in tests/audio_samples/*.mp3; do
+            base="$(basename "${f%.mp3}")"
+            ffmpeg -y -v error -i "$f" -ar 48000 -ac 2 -c:a pcm_f32le "build/audio-evaluation/$base.wav"
+            build/tests/adaptive_audio_evaluation "build/audio-evaluation/$base.wav" "build/audio-evaluation/$base.csv"
+          done
+      - name: Upload audio evaluation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: psychic-audio-evaluation
+          path: build/audio-evaluation/*.csv
+          if-no-files-found: warn
 
   build-macos:
     name: Build & Test (macOS)

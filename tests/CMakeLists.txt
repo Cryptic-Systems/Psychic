@@ -55,8 +55,7 @@ target_include_directories(track_analysis_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/src
 )
 if(NOT MSVC)
-    target_compile_options(track_analysis_tests PRIVATE -fexceptions -frtti
-)
+    target_compile_options(track_analysis_tests PRIVATE -fexceptions -frtti -fno-fast-math)
 endif()
 add_test(NAME track_analysis_tests COMMAND track_analysis_tests)
 set_tests_properties(unit_tests PROPERTIES TIMEOUT 30)

@@ -6,6 +6,7 @@
 #include "dsp_engine.h"
 #include "core/adaptive_controller.h"
 #include "core/track_analyzer.h"
+#include "core/track_intelligence.h"
 
 #include <algorithm>
 #include <cmath>
@@ -272,10 +273,31 @@ int main(int argc, char** argv) {
         track.loudness_p95_db, track.loudness_range_db);
     std::printf("track_spectrum_balance: bass_rms=%.2fdBFS bass_prominence=%.2fdB\n",
         track.bass_rms_db, track.bass_prominence_db);
-    std::printf("track_peaks: peak=%.2fdBFS mean_crest=%.2fdB max_crest=%.2fdB\n",
-        track.sample_peak_db, track.mean_crest_db, track.max_crest_db);
+    std::printf("track_peaks: peak=%.2fdBFS mean_crest=%.2fdB p90_crest=%.2fdB max_crest=%.2fdB high_crest_ratio=%.3f\n",
+        track.sample_peak_db, track.mean_crest_db, track.crest_p90_db,
+        track.max_crest_db, track.high_crest_seconds_ratio);
     std::printf("track_transitions: rising=%.2fs falling=%.2fs total=%.2fs\n",
         track.rising_seconds, track.falling_seconds, track.transition_seconds);
+    const auto intelligence = dsp::AdaptiveTrackIntelligence::analyze(track);
+    if (!intelligence.sufficient_data) {
+        std::printf("track_intelligence: insufficient active programme for reliable findings\n");
+    } else {
+        std::printf("track_intelligence: findings=%zu recommendations=%zu\n",
+            intelligence.finding_count, intelligence.recommendation_count);
+        for (std::size_t i = 0; i < intelligence.finding_count; ++i) {
+            const auto& finding = intelligence.findings[i];
+            std::printf("  trait=%s confidence=%.2f evidence=%.3f,%.3f\n",
+                dsp::AdaptiveTrackIntelligence::trait_name(finding.trait),
+                finding.confidence, finding.primary_evidence,
+                finding.secondary_evidence);
+        }
+        for (std::size_t i = 0; i < intelligence.recommendation_count; ++i) {
+            const auto& advice = intelligence.recommendations[i];
+            std::printf("  advisory: %s (confidence=%.2f)\n",
+                dsp::AdaptiveTrackIntelligence::recommendation_text(advice.recommendation),
+                advice.confidence);
+        }
+    }
     std::printf("csv=%s\n", argv[2]);
     for (auto* e : engines) dsp_destroy(e);
     return 0;

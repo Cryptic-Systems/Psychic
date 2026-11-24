@@ -756,24 +756,32 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
      * prevents one peak or the limiter's own GR from collapsing every boost.
      */
     float source_peak = 0.f;
+    double source_ms = 0.0;
     for (int c = 0; c < ch; ++c) {
         for (int i = 0; i < frames; ++i) {
             const float x = static_cast<float>(eng->temp[c][i]);
             const float ax = x >= 0.f ? x : -x;
             if (ax > source_peak) source_peak = ax;
+            source_ms += static_cast<double>(x) * static_cast<double>(x);
         }
     }
+    source_ms /= std::max(1, frames * ch);
     const float source_peak_db = dsp::linear_to_db_f(source_peak);
+    const float source_rms_db = dsp::linear_to_db_f(
+        static_cast<float>(std::sqrt(std::max(1.0e-30, source_ms))));
     decision.source_peak_db = source_peak_db;
+    decision.source_rms_db = source_rms_db;
     decision.control_rms_db = eng->meter_control_rms_db;
     const dsp::AdaptiveHeadroomBudget adaptive_budget =
         eng->adaptive_controller.allocate_headroom(
-            source_peak_db, eng->limiter_ceiling_db, eng->auto_bass_margin_db,
+            source_peak_db, source_rms_db, eng->limiter_ceiling_db, eng->auto_bass_margin_db,
             eng->budget_bass, eng->budget_preamp, eng->budget_gain,
             eng->sample_rate, frames);
     const float bass_share = adaptive_budget.bass_db;
     const float preamp_share = adaptive_budget.preamp_db;
     const float gain_share = adaptive_budget.gain_boost_db;
+    decision.budget_peak_db = eng->limiter_ceiling_db - adaptive_budget.available_db -
+        std::max(0.f, eng->auto_bass_margin_db) - 0.5f;
     decision.available_headroom_db = adaptive_budget.available_db;
     decision.bass_budget_db = bass_share;
     decision.preamp_budget_db = preamp_share;

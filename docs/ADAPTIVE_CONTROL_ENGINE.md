@@ -56,7 +56,7 @@ These are initial engineering defaults, not final perceptual tuning. They must b
 ## Decision telemetry
 
 AACE now publishes a latest-block decision snapshot into fixed-size atomic state owned by the engine. It records:
-- block index and post-user-EQ source peak;
+- block index, post-user-EQ source peak and RMS, and effective budget peak;
 - pre-enhancement control RMS and post-enhancement/pre-DVC RMS;
 - available shared headroom and the bass, preamp, and gain allocations;
 - requested target and applied value for auto-bass, auto-preamp, auto-gain, and virtual bass;

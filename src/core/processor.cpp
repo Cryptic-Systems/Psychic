@@ -123,7 +123,6 @@ struct DspEngine {
     float auto_bass_margin_db = 1.f;
     float auto_bass_freq_hz = 75.f;
     float auto_bass_applied_db = 0.f;
-    float auto_bass_smooth = 0.02f; /* ~ coeff toward target per block */
     dsp::BiquadCoeffs auto_bass_c{};
     dsp::BiquadState  auto_bass_st[kMaxChannels]{};
     float auto_bass_last_gain = 0.f;
@@ -136,7 +135,6 @@ struct DspEngine {
     float auto_gain_max_cut_db = 12.f;
     float auto_gain_window_ms = 400.f;
     float auto_gain_applied_db = 0.f;
-    float auto_gain_smooth = 0.05f;
 
     /* Shared headroom budget (normalized in process). */
     float budget_bass = 0.50f;
@@ -260,19 +258,7 @@ struct DspEngine {
             static_cast<double>(auto_bass_freq_hz > 20.f ? auto_bass_freq_hz : 75.f),
             static_cast<double>(auto_bass_applied_db),
             0.707);
-        /* Keep filter state; gain changes are gradual. */
-        const double atk_ms = 30.0;
-        const double rel_ms = 400.0;
-        /* Per-sample coeffs not needed; we smooth applied_db per block. */
-        (void)atk_ms;
-        (void)rel_ms;
-        if (sample_rate > 0.f) {
-            /* ~150 ms time-constant toward desired applied_db */
-            auto_bass_smooth = static_cast<float>(
-                1.0 - std::exp(-1.0 / (0.15 * sample_rate / 64.0)));
-            if (auto_bass_smooth < 0.01f) auto_bass_smooth = 0.01f;
-            if (auto_bass_smooth > 0.5f) auto_bass_smooth = 0.5f;
-        }
+        /* Filter state is preserved while AACE smooths coefficient targets. */
     }
 
     void reset_level_meters() {
@@ -288,14 +274,6 @@ struct DspEngine {
         rms_env_ms = 0.0;
     }
 
-    void update_auto_gain_smooth() {
-        if (sample_rate <= 0.f) return;
-        /* ~ block-rate smoothing toward target over ~window/4 */
-        const double tau_blocks = (auto_gain_window_ms * 0.001 * sample_rate) / 64.0;
-        auto_gain_smooth = static_cast<float>(1.0 - std::exp(-1.0 / std::max(2.0, tau_blocks)));
-        if (auto_gain_smooth < 0.01f) auto_gain_smooth = 0.01f;
-        if (auto_gain_smooth > 0.35f) auto_gain_smooth = 0.35f;
-    }
 };
 
 static sample_t true_peak_pair(sample_t a, sample_t b) {
@@ -638,7 +616,6 @@ static void apply_mailbox(DspEngine* eng) {
         eng->auto_gain_max_cut_db = eng->mb_auto_gain_max_cut.load(std::memory_order_relaxed);
     if (flags & 65536) {
         eng->auto_gain_window_ms = eng->mb_auto_gain_window_ms.load(std::memory_order_relaxed);
-        eng->update_auto_gain_smooth();
     }
 }
 
@@ -1024,7 +1001,6 @@ DspEngine* dsp_create(const DspConfig* cfg) {
     eng->eq.set_enabled(eng->eq_enabled);
     eng->reset_level_meters();
     eng->rebuild_auto_bass();
-    eng->update_auto_gain_smooth();
     return eng;
 }
 

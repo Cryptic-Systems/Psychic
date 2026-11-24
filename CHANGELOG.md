@@ -122,3 +122,4 @@
 
 - Adds diagnostic section-transition classification from rolling RMS trend, with confidence persistence and rising/falling/steady states; it does not yet influence gain.
 - Requires a fresh confidence build when the detected section-trend direction reverses, preventing stale rising confidence from immediately classifying a fall (or vice versa).
+- Adds a confidence-gated anticipatory gain hint (±1 dB maximum) to internal telemetry; the auto-gain servo does not yet consume it.

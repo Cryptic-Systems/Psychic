@@ -10,6 +10,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstddef>
 
 namespace dsp {
 
@@ -72,7 +73,7 @@ public:
             crest_time_sum_ += static_cast<double>(crest) * duration_seconds;
             max_crest_db_ = std::max(max_crest_db_, crest);
             const int bin = histogram_bin(safe_rms);
-            loudness_histogram_[static_cast<size_t>(bin)] += duration_seconds;
+            loudness_histogram_[static_cast<std::size_t>(bin)] += duration_seconds;
         }
 
         const float confidence = std::max(0.f,
@@ -115,7 +116,7 @@ private:
     static constexpr int kHistogramMinimumDb = -120;
     static constexpr int kHistogramMaximumDb = 24;
     static constexpr size_t kHistogramBins =
-        static_cast<size_t>(kHistogramMaximumDb - kHistogramMinimumDb + 1);
+        static_cast<std::size_t>(kHistogramMaximumDb - kHistogramMinimumDb + 1);
 
     static int histogram_bin(float db) noexcept {
         const int rounded = static_cast<int>(std::floor(db + 0.5f));
@@ -130,7 +131,7 @@ private:
     float percentile(double fraction) const noexcept {
         const double target = active_seconds_ * fraction;
         double accumulated = 0.0;
-        for (size_t i = 0; i < loudness_histogram_.size(); ++i) {
+        for (std::size_t i = 0; i < loudness_histogram_.size(); ++i) {
             accumulated += loudness_histogram_[i];
             if (accumulated >= target)
                 return static_cast<float>(static_cast<int>(i) +

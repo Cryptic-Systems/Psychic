@@ -35,7 +35,6 @@ int main() {
 
     // Rolling track state distinguishes a rising section from a stable level.
     dsp::AdaptiveController track_a;
-    dsp::AdaptiveController track_b;
     const auto initial_track = track_a.update_track_state(0.01, 0.001, 48000.f, 480);
     if (std::fabs(initial_track.short_rms_db - (-20.0f)) > 1.0e-3f) return 22;
     if (std::fabs(initial_track.long_rms_db - initial_track.short_rms_db) > 1.0e-4f) return 23;

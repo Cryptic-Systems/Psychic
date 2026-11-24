@@ -779,8 +779,9 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
         if (desired > bass_share) desired = bass_share;
         if (desired < -12.f) desired = -12.f;
         if (desired > 24.f) desired = 24.f;
-        const float a = eng->auto_bass_smooth;
-        eng->auto_bass_applied_db += a * (desired - eng->auto_bass_applied_db);
+        eng->auto_bass_applied_db = eng->adaptive_controller.smooth_parameter(
+            eng->auto_bass_applied_db, desired, eng->sample_rate, frames,
+            0.35f, 0.18f);
         if (std::fabs(eng->auto_bass_applied_db - eng->auto_bass_last_gain) > 0.05f) {
             eng->rebuild_auto_bass();
             eng->auto_bass_last_gain = eng->auto_bass_applied_db;
@@ -796,7 +797,9 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
             }
         }
     } else if (std::fabs(eng->auto_bass_applied_db) > 0.01f) {
-        eng->auto_bass_applied_db *= (1.f - eng->auto_bass_smooth);
+        eng->auto_bass_applied_db = eng->adaptive_controller.smooth_parameter(
+            eng->auto_bass_applied_db, 0.f, eng->sample_rate, frames,
+            0.35f, 0.18f);
         if (std::fabs(eng->auto_bass_applied_db) < 0.01f) {
             eng->auto_bass_applied_db = 0.f;
             for (int c = 0; c < ch; ++c) eng->auto_bass_st[c] = dsp::BiquadState{};
@@ -814,7 +817,9 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
         float desired_vb = eng->auto_vb_target * (1.f - 0.85f * t);
         if (desired_vb < 0.f) desired_vb = 0.f;
         if (desired_vb > 1.f) desired_vb = 1.f;
-        eng->auto_vb_applied += 0.08f * (desired_vb - eng->auto_vb_applied);
+        eng->auto_vb_applied = eng->adaptive_controller.smooth_parameter(
+            eng->auto_vb_applied, desired_vb, eng->sample_rate, frames,
+            0.45f, 0.25f);
         eng->virtual_bass = eng->auto_vb_applied;
         eng->speaker.configure(eng->sample_rate, eng->speaker_enabled, eng->virtual_bass);
     }
@@ -831,13 +836,16 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
         if (desired > preamp_share) desired = preamp_share;
         if (desired < -12.f) desired = -12.f;
         if (desired > 12.f) desired = 12.f;
-        eng->auto_preamp_applied_db += eng->auto_bass_smooth
-            * (desired - eng->auto_preamp_applied_db);
+        eng->auto_preamp_applied_db = eng->adaptive_controller.smooth_parameter(
+            eng->auto_preamp_applied_db, desired, eng->sample_rate, frames,
+            0.35f, 0.18f);
         eng->preamp_linear = static_cast<float>(
             std::pow(10.0, eng->auto_preamp_applied_db * 0.05));
     } else if (std::fabs(eng->auto_preamp_applied_db) > 0.01f) {
         /* Fade out sticky auto-preamp when disabled (manual preamp can re-apply). */
-        eng->auto_preamp_applied_db *= (1.f - eng->auto_bass_smooth);
+        eng->auto_preamp_applied_db = eng->adaptive_controller.smooth_parameter(
+            eng->auto_preamp_applied_db, 0.f, eng->sample_rate, frames,
+            0.35f, 0.18f);
         if (std::fabs(eng->auto_preamp_applied_db) < 0.01f)
             eng->auto_preamp_applied_db = 0.f;
         eng->preamp_linear = static_cast<float>(

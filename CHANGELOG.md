@@ -7,6 +7,7 @@
 - Transient-density-aware headroom budgeting that discounts isolated high-crest events while allowing recurring peaks to build sustained pressure
 - Internal per-block decision telemetry for rolling fast/slow loudness, section trend, rolling bass energy, and adaptive subsystem reasons, requested/applied targets, shared headroom, loudness references, and limiter gain-reduction peak hold
 - Bounded lock-free snapshot reads using lock-free scalar atomics; no callback logging, allocation, or event queue
+- Deterministic section-transition validation for abrupt steps, gradual fades, steady-state recovery, and bass-only balance changes
 
 
 ### Added

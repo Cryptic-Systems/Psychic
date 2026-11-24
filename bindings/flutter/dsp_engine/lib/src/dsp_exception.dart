@@ -1,4 +1,4 @@
-/// Thrown when the native DSP ENGINE reports an error.
+/// Thrown when the native Psychic reports an error.
 class DspException implements Exception {
   final String message;
   final int? code;

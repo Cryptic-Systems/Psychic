@@ -46,7 +46,7 @@ A second detector separates isolated high-crest events from recurring pressure. 
 
 ### Rolling live track state
 
-AACE maintains three time-based envelopes from post-user-EQ measurements: fast full-band RMS (450 ms), slow full-band RMS (3 s), and low-band RMS (1.2 s). The fast-minus-slow difference is a lightweight section trend: positive values indicate a recent rise in level, while negative values indicate a recent fall. Bass prominence compares rolling low-band RMS with full-band RMS.
+AACE maintains three time-based envelopes from post-user-EQ measurements: fast full-band RMS (450 ms), slow full-band RMS (3 s), and low-band RMS (1.2 s). The fast-minus-slow difference is a lightweight section trend: positive values indicate a recent rise in level, while negative values indicate a recent fall. A separate confidence envelope requires sustained divergence before classifying a section as rising or falling; isolated transients are not sufficient. Confidence uses a 0.75 s attack and 1.10 s release, with a 1.5 dB trend floor and 2 dB directional floor. These initial thresholds are diagnostic only and do not drive gain. Bass prominence compares rolling low-band RMS with full-band RMS.
 
 Content-aware virtual bass now uses rolling low-band RMS rather than the peak-hold bass meter. This avoids letting one kick transient suppress virtual bass through the following passage. A supplied offline analysis hint can still override the live estimate when it indicates stronger bass content. The trend is currently observable through internal telemetry; it does not yet drive auto-gain or other gain changes. That keeps this first predictive signal diagnostic until its behaviour is validated on real programme material.
 
@@ -76,7 +76,7 @@ Reason flags currently identify active control, shared-budget limitation, safety
 
 The snapshot uses lock-free 32-bit and float atomics with a sequence counter. The audio thread only writes fixed scalar fields; readers retry a bounded number of times and never block the callback. No event queue, allocation, logging, or I/O is performed in the callback. The snapshot is internal and is not yet exposed through the public C ABI or Flutter binding; that API decision is deferred until the telemetry fields and semantics have been validated.
 
-The limiter field is its existing peak-held gain-reduction meter, not a per-sample or per-block instantaneous GR trace. The output RMS field is measured after adaptive bass/preamp and before auto-gain DVC and limiting. Rolling telemetry additionally reports fast and slow post-EQ RMS, their dB difference as a loudness trend, rolling low-band RMS, and bass prominence relative to full-band RMS.
+The limiter field is its existing peak-held gain-reduction meter, not a per-sample or per-block instantaneous GR trace. The output RMS field is measured after adaptive bass/preamp and before auto-gain DVC and limiting. Rolling telemetry additionally reports fast and slow post-EQ RMS, their dB difference as a loudness trend, rolling low-band RMS, bass prominence relative to full-band RMS, and a confidence-qualified rising/falling/steady section state.
 
 ## Real-time and compatibility constraints
 
@@ -105,6 +105,6 @@ Record limiter gain reduction, auto-gain applied dB, auto-bass applied dB, pream
 
 1. Validate decision telemetry against listening tests, then decide which stable diagnostics should be exposed to the host.
 2. Validate transient-density thresholds and attack/release against isolated clicks, percussion, clipped masters, and sustained overload material; then tune limiter recovery.
-3. Extend rolling state with section-transition confidence and calibrated low-frequency balance, then add richer pre-analysis hints for local tracks.
+3. Validate section-transition confidence and calibrated low-frequency balance against real music, then add richer pre-analysis hints for local tracks.
 4. Add listener and output-device profiles, with safety constraints always taking priority.
 5. Expose opt-in controls and observability to the host only after the internal behaviour is validated.

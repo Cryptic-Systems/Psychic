@@ -18,7 +18,7 @@
 - Architecture and validation notes in `docs/ADAPTIVE_CONTROL_ENGINE.md`
 
 ### Changed
-- Reduced the default auto-gain maximum cut from 12 dB to 6 dB to limit excessive attenuation; applications can still explicitly request deeper cuts up to 24 dB
+- Reduced the default auto-gain maximum cut from 6 dB to 3 dB after expanded programme measurements showed sustained cut-ceiling behaviour on already-mastered material; applications can still explicitly request deeper cuts up to 24 dB
 - Auto-gain headroom uses post-user-EQ peak and RMS with transient-density handling, rather than stale post-limiter telemetry
 - Auto-bass, auto-preamp, virtual-bass, and auto-gain target transitions use elapsed-time smoothing
 

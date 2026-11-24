@@ -65,6 +65,35 @@ int main() {
             0.01, 0.001, 48000.f, 480);
     if (after_transient.section_transition != dsp::kSectionSteady) return 35;
     if (after_transient.section_transition_confidence > 0.18f) return 36;
+    // Transition confidence is elapsed-time based and remains stable across
+    // callback block sizes.
+    dsp::AdaptiveController transition_small;
+    dsp::AdaptiveController transition_large;
+    transition_small.update_track_state(0.01, 0.001, 48000.f, 480);
+    transition_large.update_track_state(0.01, 0.001, 48000.f, 480);
+    dsp::AdaptiveTrackState small_transition{}, large_transition{};
+    for (int i = 0; i < 120; ++i)
+        small_transition = transition_small.update_track_state(
+            0.1, 0.01, 48000.f, 480);
+    for (int i = 0; i < 12; ++i)
+        large_transition = transition_large.update_track_state(
+            0.1, 0.01, 48000.f, 4800);
+    if (small_transition.section_transition != large_transition.section_transition)
+        return 39;
+    if (std::fabs(small_transition.section_transition_confidence -
+                  large_transition.section_transition_confidence) > 1.0e-3f)
+        return 40;
+
+    // Small, rapidly varying level fluctuations should not look like a section
+    // change after the rolling envelopes settle.
+    dsp::AdaptiveController noisy_section;
+    dsp::AdaptiveTrackState noisy_state{};
+    for (int i = 0; i < 800; ++i) {
+        const double modulation = 1.0 + 0.15 * std::sin(i * 0.37);
+        noisy_state = noisy_section.update_track_state(
+            0.01 * modulation, 0.001 * modulation, 48000.f, 480);
+    }
+    if (noisy_state.section_transition != dsp::kSectionSteady) return 41;
     dsp::AdaptiveController track_large_block;
     dsp::AdaptiveController track_small_blocks;
     track_large_block.update_track_state(0.01, 0.001, 48000.f, 480);

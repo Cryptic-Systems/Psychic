@@ -42,11 +42,20 @@ int main() {
     const auto rising_track = track_a.update_track_state(0.1, 0.01, 48000.f, 480);
     if (rising_track.loudness_trend_db <= 0.f) return 24;
     if (rising_track.bass_prominence_db >= 0.f) return 25;
-    auto block_track = track_b.update_track_state(0.01, 0.001, 48000.f, 4800);
-    for (int i = 0; i < 10; ++i)
-        block_track = track_b.update_track_state(0.1, 0.01, 48000.f, 480);
-    const auto multi_block_track = track_a.update_track_state(0.1, 0.01, 48000.f, 480);
-    if (std::fabs(block_track.short_rms_db - multi_block_track.short_rms_db) > 1.0e-3f)
+    dsp::AdaptiveController track_large_block;
+    dsp::AdaptiveController track_small_blocks;
+    track_large_block.update_track_state(0.01, 0.001, 48000.f, 480);
+    track_small_blocks.update_track_state(0.01, 0.001, 48000.f, 480);
+    const auto block_track =
+        track_large_block.update_track_state(0.1, 0.01, 48000.f, 4800);
+    auto multi_block_track = track_small_blocks.update_track_state(
+        0.1, 0.01, 48000.f, 480);
+    for (int i = 1; i < 10; ++i)
+        multi_block_track = track_small_blocks.update_track_state(
+            0.1, 0.01, 48000.f, 480);
+    if (std::fabs(block_track.short_rms_db - multi_block_track.short_rms_db) > 1.0e-3f ||
+        std::fabs(block_track.long_rms_db - multi_block_track.long_rms_db) > 1.0e-3f ||
+        std::fabs(block_track.bass_rms_db - multi_block_track.bass_rms_db) > 1.0e-3f)
         return 26;
 
     // Smoothing is based on elapsed audio time, not a fixed per-block step.

@@ -28,7 +28,7 @@ int main() {
     dynamic.loudness_p50_db=-27; dynamic.loudness_p95_db=-10;
     dynamic.loudness_range_db=28; dynamic.bass_prominence_db=-12;
     dynamic.crest_p90_db=7; dynamic.high_crest_seconds_ratio=.02f;
-    dynamic.transition_seconds=18;
+    dynamic.transition_seconds=35;
     report=AdaptiveTrackIntelligence::analyze(dynamic);
     if(!has(report,TrackTrait::LowLevelQuiet)) return 7;
     if(!has(report,TrackTrait::HighDynamicRange)) return 8;

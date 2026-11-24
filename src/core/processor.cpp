@@ -782,6 +782,8 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
     decision.track_bass_rms_db = track_state.bass_rms_db;
     decision.track_loudness_trend_db = track_state.loudness_trend_db;
     decision.track_bass_prominence_db = track_state.bass_prominence_db;
+    decision.section_transition = track_state.section_transition;
+    decision.section_transition_confidence = track_state.section_transition_confidence;
     decision.control_rms_db = eng->meter_control_rms_db;
     const dsp::AdaptiveHeadroomBudget adaptive_budget =
         eng->adaptive_controller.allocate_headroom(

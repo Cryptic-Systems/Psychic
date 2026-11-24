@@ -16,6 +16,7 @@ User EQ
 AACE source measurements
   |-- post-EQ peak for headroom allocation
   |-- pre-enhancement RMS for loudness control
+  |-- rolling fast/slow RMS trend and bass-band RMS
   |
 AACE shared headroom allocator
   |-- bass enhancement budget
@@ -31,7 +32,7 @@ Auto-gain / DVC
 Limiter -> dither -> output
 ```
 
-The audio callback remains the only place that processes audio samples. AACE uses fixed-size state and scalar block measurements; it performs no allocation, locking, file access, decoding, or track scanning.
+The audio callback remains the only place that processes audio samples. AACE uses fixed-size state and scalar block measurements; it performs no allocation, locking, file access, decoding, or track scanning. Rolling state uses approximately 450 ms fast loudness, 3 s slow loudness, and 1.2 s bass-energy envelopes. These are live-stream statistics, not whole-track analysis.
 
 ## First coordination changes
 
@@ -67,7 +68,7 @@ Reason flags currently identify active control, shared-budget limitation, safety
 
 The snapshot uses lock-free 32-bit and float atomics with a sequence counter. The audio thread only writes fixed scalar fields; readers retry a bounded number of times and never block the callback. No event queue, allocation, logging, or I/O is performed in the callback. The snapshot is internal and is not yet exposed through the public C ABI or Flutter binding; that API decision is deferred until the telemetry fields and semantics have been validated.
 
-The limiter field is its existing peak-held gain-reduction meter, not a per-sample or per-block instantaneous GR trace. The output RMS field is measured after adaptive bass/preamp and before auto-gain DVC and limiting.
+The limiter field is its existing peak-held gain-reduction meter, not a per-sample or per-block instantaneous GR trace. The output RMS field is measured after adaptive bass/preamp and before auto-gain DVC and limiting. Rolling telemetry additionally reports fast and slow post-EQ RMS, their dB difference as a loudness trend, rolling low-band RMS, and bass prominence relative to full-band RMS.
 
 ## Real-time and compatibility constraints
 
@@ -96,6 +97,6 @@ Record limiter gain reduction, auto-gain applied dB, auto-bass applied dB, pream
 
 1. Validate decision telemetry against listening tests, then decide which stable diagnostics should be exposed to the host.
 2. Validate transient-density thresholds and attack/release against isolated clicks, percussion, clipped masters, and sustained overload material; then tune limiter recovery.
-3. Add rolling track-state analysis for live streams and richer pre-analysis hints for local tracks.
+3. Extend rolling state with section-transition confidence and calibrated low-frequency balance, then add richer pre-analysis hints for local tracks.
 4. Add listener and output-device profiles, with safety constraints always taking priority.
 5. Expose opt-in controls and observability to the host only after the internal behaviour is validated.

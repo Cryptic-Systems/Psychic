@@ -786,6 +786,15 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
     decision.section_transition_confidence = track_state.section_transition_confidence;
     decision.anticipatory_gain_hint_db = track_state.anticipatory_gain_hint_db;
     decision.control_rms_db = eng->meter_control_rms_db;
+    const float gain_cut_confidence =
+        eng->adaptive_controller.update_gain_cut_confidence(
+            eng->meter_control_rms_db, eng->auto_gain_target_rms_db +
+                eng->auto_gain_bias_db, track_state.section_transition_confidence,
+            eng->sample_rate, frames);
+    const float gain_cut_limit_db =
+        eng->auto_gain_max_cut_db * gain_cut_confidence;
+    decision.gain_cut_confidence = gain_cut_confidence;
+    decision.gain_cut_limit_db = gain_cut_limit_db;
     const dsp::AdaptiveHeadroomBudget adaptive_budget =
         eng->adaptive_controller.allocate_headroom(
             source_peak_db, source_rms_db, eng->limiter_ceiling_db, eng->auto_bass_margin_db,
@@ -950,7 +959,12 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
         gain_reasons |= dsp::kDecisionActive;
         if (silence_recovery_active) gain_reasons |= dsp::kDecisionSilenceRecovery;
         if (err > eng->auto_gain_max_boost_db) { err = eng->auto_gain_max_boost_db; gain_reasons |= dsp::kDecisionTargetLimited; }
-        if (err < -eng->auto_gain_max_cut_db) { err = -eng->auto_gain_max_cut_db; gain_reasons |= dsp::kDecisionTargetLimited; }
+        if (err < -gain_cut_limit_db) {
+            err = -gain_cut_limit_db;
+            gain_reasons |= dsp::kDecisionTargetLimited;
+            if (gain_cut_confidence < 0.999f)
+                gain_reasons |= dsp::kDecisionContentAware;
+        }
         if (err > gain_share) { err = gain_share; gain_reasons |= dsp::kDecisionBudgetLimited; }
         if (err > 24.f) err = 24.f;
         if (err < -24.f) { err = -24.f; gain_reasons |= dsp::kDecisionTargetLimited; }

@@ -115,7 +115,7 @@ private:
     static constexpr float kTransitionConfidenceFloor = 0.18f;
     static constexpr int kHistogramMinimumDb = -120;
     static constexpr int kHistogramMaximumDb = 24;
-    static constexpr size_t kHistogramBins =
+    static constexpr std::size_t kHistogramBins =
         static_cast<std::size_t>(kHistogramMaximumDb - kHistogramMinimumDb + 1);
 
     static int histogram_bin(float db) noexcept {

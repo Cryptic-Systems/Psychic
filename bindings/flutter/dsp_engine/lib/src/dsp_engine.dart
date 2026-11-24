@@ -5,7 +5,7 @@ import 'package:ffi/ffi.dart';
 import 'dsp_engine_bindings.dart';
 import 'dsp_exception.dart';
 
-/// High-level wrapper around the DSP ENGINE C ABI.
+/// High-level wrapper around the Psychic C ABI.
 class DspEngine {
   DspEngine._(this._b, this._handle);
 

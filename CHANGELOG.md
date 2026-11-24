@@ -121,3 +121,4 @@
 - Initial DVC and ring-buffer work
 
 - Adds diagnostic section-transition classification from rolling RMS trend, with confidence persistence and rising/falling/steady states; it does not yet influence gain.
+- Requires a fresh confidence build when the detected section-trend direction reverses, preventing stale rising confidence from immediately classifying a fall (or vice versa).

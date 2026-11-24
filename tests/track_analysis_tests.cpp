@@ -2,6 +2,7 @@
 #include "core/adaptive_controller.h"
 
 #include <cmath>
+#include <cstdio>
 
 int main() {
     dsp::AdaptiveTrackAnalyzer analyzer;
@@ -18,6 +19,7 @@ int main() {
         analyzer.add_block(-120.f, -120.f, -120.f, 0.01);
 
     const auto result = analyzer.summary();
+    std::fprintf(stderr, "profile dur=%.5f active=%.5f silence=%.5f rms=%.5f p10=%.2f p50=%.2f p95=%.2f range=%.2f peak=%.2f crest=%.2f rising=%.5f transition=%.5f bassprom=%.2f\\n", result.duration_seconds, result.active_seconds, result.silence_seconds, result.integrated_rms_db, result.loudness_p10_db, result.loudness_p50_db, result.loudness_p95_db, result.loudness_range_db, result.sample_peak_db, result.max_crest_db, result.rising_seconds, result.transition_seconds, result.bass_prominence_db);
     if (std::fabs(result.duration_seconds - 21.01) > 1.0e-6) return 1;
     if (std::fabs(result.active_seconds - 20.01) > 1.0e-6) return 2;
     if (std::fabs(result.silence_seconds - 1.0) > 1.0e-6) return 3;
@@ -40,6 +42,7 @@ int main() {
     analyzer.add_block(0.f, 0.f, 0.f, 0.0);
     analyzer.add_block(NAN, INFINITY, NAN, 0.1);
     const auto sanitized = analyzer.summary();
+    std::fprintf(stderr, "sanitized dur=%.5f active=%.5f silence=%.5f rms=%.2f peak=%.2f\\n", sanitized.duration_seconds, sanitized.active_seconds, sanitized.silence_seconds, sanitized.integrated_rms_db, sanitized.sample_peak_db);
     if (sanitized.duration_seconds < 0.099 ||
         sanitized.duration_seconds > 0.101) return 14;
     if (!std::isfinite(sanitized.integrated_rms_db) ||

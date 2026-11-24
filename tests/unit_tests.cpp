@@ -587,6 +587,15 @@ TEST(level_meter_and_auto_bass) {
 }
 
 
+TEST(auto_gain_default_cut_limit) {
+    DspEngine* eng = create_engine();
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_NEAR(dsp_auto_gain_get_max_cut_db(eng), 6.f, 0.001f);
+    EXPECT_EQ(dsp_auto_gain_set_max_cut_db(eng, 12.f), DSP_OK);
+    EXPECT_NEAR(dsp_auto_gain_get_max_cut_db(eng), 12.f, 0.001f);
+    dsp_destroy(eng);
+}
+
 TEST(auto_gain_rms) {
     DspEngine* eng = create_engine();
     EXPECT_EQ(dsp_limiter_enable(eng, 1), DSP_OK);

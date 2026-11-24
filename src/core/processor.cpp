@@ -96,7 +96,7 @@ struct DspEngine {
     std::atomic<float> mb_auto_gain_target{-18.f};
     std::atomic<float> mb_auto_gain_bias{0.f};
     std::atomic<float> mb_auto_gain_max_boost{6.f};
-    std::atomic<float> mb_auto_gain_max_cut{6.f};
+    std::atomic<float> mb_auto_gain_max_cut{3.f};
     std::atomic<float> mb_auto_gain_window_ms{400.f};
 
     int64_t stats_calls = 0;
@@ -133,7 +133,7 @@ struct DspEngine {
     float auto_gain_target_rms_db = -18.f;
     float auto_gain_bias_db = 0.f;
     float auto_gain_max_boost_db = 6.f;
-    float auto_gain_max_cut_db = 6.f;
+    float auto_gain_max_cut_db = 3.f;
     float auto_gain_window_ms = 400.f;
     float auto_gain_applied_db = 0.f;
 
@@ -1877,7 +1877,7 @@ DspError dsp_auto_gain_set_max_cut_db(DspEngine* eng, float max_cut_db) {
 }
 
 float dsp_auto_gain_get_max_cut_db(const DspEngine* eng) {
-    return eng ? eng->auto_gain_max_cut_db : 6.f;
+    return eng ? eng->auto_gain_max_cut_db : 3.f;
 }
 
 DspError dsp_auto_gain_set_window_ms(DspEngine* eng, float window_ms) {

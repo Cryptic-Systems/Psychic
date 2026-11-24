@@ -56,6 +56,22 @@ int main() {
     for (int i = 0; i < 120; ++i)
         falling_state = falling_section.update_track_state(0.01, 0.001, 48000.f, 480);
     if (falling_state.section_transition != dsp::kSectionFalling) return 34;
+    // Reversing a confirmed rise must not inherit its confidence and
+    // immediately report a fall. The opposite direction must earn confidence.
+    dsp::AdaptiveController reversing_section;
+    reversing_section.update_track_state(0.01, 0.001, 48000.f, 480);
+    dsp::AdaptiveTrackState reversal_state{};
+    for (int i = 0; i < 120; ++i)
+        reversal_state = reversing_section.update_track_state(
+            0.1, 0.01, 48000.f, 480);
+    if (reversal_state.section_transition != dsp::kSectionRising) return 42;
+    reversal_state = reversing_section.update_track_state(
+        0.001, 0.0001, 48000.f, 480);
+    if (reversal_state.section_transition == dsp::kSectionFalling) return 43;
+    for (int i = 0; i < 120; ++i)
+        reversal_state = reversing_section.update_track_state(
+            0.001, 0.0001, 48000.f, 480);
+    if (reversal_state.section_transition != dsp::kSectionFalling) return 44;
     dsp::AdaptiveController isolated_transient;
     isolated_transient.update_track_state(0.01, 0.001, 48000.f, 480);
     isolated_transient.update_track_state(1.0, 0.1, 48000.f, 480);

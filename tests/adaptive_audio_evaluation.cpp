@@ -104,7 +104,7 @@ int main(int argc, char** argv) {
     DspEngine* gain_only = dsp_create(&cfg);
     DspEngine* eng = dsp_create(&cfg);
     if (!baseline || !gain_only || !eng) {
-        std::fprintf(stderr, "dsp_create failed\\n");
+        std::fprintf(stderr, "dsp_create failed\n");
         if (baseline) dsp_destroy(baseline);
         if (gain_only) dsp_destroy(gain_only);
         if (eng) dsp_destroy(eng);
@@ -225,11 +225,11 @@ int main(int argc, char** argv) {
     std::printf("duration_s=%.3f blocks=%llu\n",
         static_cast<double>(samples / 2) / wi.sample_rate,
         static_cast<unsigned long long>(rows));
-    std::printf("input_rms_db=%.2f baseline_db=%.2f gain_only_db=%.2f full_adaptive_db=%.2f\\n",
+    std::printf("input_rms_db=%.2f baseline_db=%.2f gain_only_db=%.2f full_adaptive_db=%.2f\n",
         overall_in, overall_baseline, overall_gain_only, overall_out);
-    std::printf("gain_only_vs_baseline_db=%.2f range=%.2f..%.2f\\n",
+    std::printf("gain_only_vs_baseline_db=%.2f range=%.2f..%.2f\n",
         overall_gain_only - overall_baseline, min_gain_only_vs_baseline, max_gain_only_vs_baseline);
-    std::printf("full_adaptive_vs_baseline_db=%.2f range=%.2f..%.2f\\n",
+    std::printf("full_adaptive_vs_baseline_db=%.2f range=%.2f..%.2f\n",
         overall_out - overall_baseline, min_adaptive_vs_baseline, max_adaptive_vs_baseline);
     std::printf("gain_applied_range_db=%.2f..%.2f limiter_gr_peak_db=%.2f\n",
         min_gain, max_gain, max_gr);

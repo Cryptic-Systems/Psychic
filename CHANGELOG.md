@@ -5,7 +5,7 @@
 - Rolling live track-state analysis with fast/slow loudness envelopes, loudness trend, rolling bass RMS, and bass prominence
 - Content-aware virtual-bass decisions now use rolling bass energy rather than a peak-hold transient meter
 - Transient-density-aware headroom budgeting that discounts isolated high-crest events while allowing recurring peaks to build sustained pressure
-- Internal per-block decision telemetry for adaptive subsystem reasons, requested/applied targets, shared headroom, loudness references, and limiter gain-reduction peak hold
+- Internal per-block decision telemetry for rolling fast/slow loudness, section trend, rolling bass energy, and adaptive subsystem reasons, requested/applied targets, shared headroom, loudness references, and limiter gain-reduction peak hold
 - Bounded lock-free snapshot reads using lock-free scalar atomics; no callback logging, allocation, or event queue
 
 

@@ -217,21 +217,14 @@ int main() {
         quiet_power, quiet_power * 0.1, 48000.f, 480);
     const auto initial_large = cut_large.update_track_state(
         quiet_power, quiet_power * 0.1, 48000.f, 480);
-    cut_small.update_gain_cut_confidence(-30.f, -18.f,
-        initial_small.section_transition_confidence, 48000.f, 480);
-    cut_large.update_gain_cut_confidence(-30.f, -18.f,
-        initial_large.section_transition_confidence, 48000.f, 480);
+    cut_small.update_gain_cut_confidence(-30.f, -18.f, 0.f, 48000.f, 480);
+    cut_large.update_gain_cut_confidence(-30.f, -18.f, 0.f, 48000.f, 480);
     float small_cut = 0.f, large_cut = 0.f;
-    for (int i = 0; i < 100; ++i) {
-        const auto state = cut_small.update_track_state(
-            loud_power, loud_power * 0.1, 48000.f, 480);
+    for (int i = 0; i < 100; ++i)
         small_cut = cut_small.update_gain_cut_confidence(
-            -6.f, -18.f, state.section_transition_confidence, 48000.f, 480);
-    }
-    const auto large_state = cut_large.update_track_state(
-        loud_power, loud_power * 0.1, 48000.f, 48000);
+            -6.f, -18.f, 0.f, 48000.f, 480);
     large_cut = cut_large.update_gain_cut_confidence(
-        -6.f, -18.f, large_state.section_transition_confidence, 48000.f, 48000);
+        -6.f, -18.f, 0.f, 48000.f, 48000);
     if (std::fabs(small_cut - large_cut) > 2.0e-3f) return 63;
 
     // Smoothing is based on elapsed audio time, not a fixed per-block step.

@@ -143,7 +143,7 @@ struct DspEngine {
     float budget_gain = 0.30f;
     dsp::AdaptiveController adaptive_controller;
     dsp::AdaptiveDecisionTelemetry adaptive_telemetry;
-    uint64_t adaptive_block_index = 0;
+    uint32_t adaptive_block_index = 0;
 
     /* Auto-preamp */
     bool  auto_preamp_enabled = false;
@@ -652,6 +652,11 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
                 interleaved[i * ch + c] = sample_finite(x) ? x : sample_t(0);
             }
         }
+        decision.bass_applied_db = eng->auto_bass_applied_db;
+        decision.preamp_applied_db = eng->auto_preamp_applied_db;
+        decision.gain_applied_db = eng->auto_gain_applied_db;
+        decision.virtual_bass_applied = eng->auto_vb_applied;
+        eng->adaptive_telemetry.publish(decision);
         return;
     }
 
@@ -897,9 +902,9 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
         if (eng->meter_short_term_rms_db < eng->silence_thresh_db) {
             eng->silence_hold_acc_ms += block_ms_f;
             if (eng->silence_hold_acc_ms >= eng->silence_hold_ms) {
-                if (eng->auto_bass_applied_db > 0.f) bass_reasons |= dsp::kDecisionSilenceRecovery;
-                if (eng->auto_preamp_applied_db > 0.f) preamp_reasons |= dsp::kDecisionSilenceRecovery;
-                if (eng->auto_gain_applied_db > 0.f) gain_reasons |= dsp::kDecisionSilenceRecovery;
+                if (std::fabs(eng->auto_bass_applied_db) > 0.001f) bass_reasons |= dsp::kDecisionSilenceRecovery;
+                if (std::fabs(eng->auto_preamp_applied_db) > 0.001f) preamp_reasons |= dsp::kDecisionSilenceRecovery;
+                if (std::fabs(eng->auto_gain_applied_db) > 0.001f) gain_reasons |= dsp::kDecisionSilenceRecovery;
                 eng->auto_bass_applied_db *= 0.9f;
                 eng->auto_preamp_applied_db *= 0.9f;
                 eng->auto_gain_applied_db *= 0.9f;

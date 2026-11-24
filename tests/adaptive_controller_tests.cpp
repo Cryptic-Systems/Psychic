@@ -46,6 +46,8 @@ int main() {
     if (!(reduced < parameter && reduced > 0.0f)) return 9;
     // Telemetry publishes a coherent, allocation-free latest-block snapshot.
     dsp::AdaptiveDecisionTelemetry telemetry;
+    dsp::AdaptiveDecisionSnapshot observed{};
+    if (telemetry.read(observed)) return 10;
     dsp::AdaptiveDecisionSnapshot published{};
     published.block_index = 42;
     published.bass_reasons = dsp::kDecisionActive | dsp::kDecisionBudgetLimited;
@@ -54,8 +56,7 @@ int main() {
     published.bass_applied_db = 2.5f;
     published.limiter_reduction_db = 1.25f;
     telemetry.publish(published);
-    dsp::AdaptiveDecisionSnapshot observed{};
-    if (!telemetry.read(observed)) return 10;
+    if (!telemetry.read(observed)) return 17;
     if (observed.block_index != 42) return 11;
     if (observed.bass_reasons != published.bass_reasons) return 12;
     if (std::fabs(observed.source_peak_db - published.source_peak_db) > 1.0e-6f) return 13;

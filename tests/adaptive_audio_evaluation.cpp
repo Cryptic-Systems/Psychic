@@ -126,7 +126,7 @@ int main(int argc, char** argv) {
     dsp_auto_bass_set_margin_db(full, 1.0f);
     dsp_auto_preamp_enable(full, 1);
     dsp_auto_preamp_set_target_db(full, 3.0f);
-    configure_auto_gain(full, 400.f, 12.f);
+    configure_auto_gain(full, 400.f, 6.f);
     dsp_headroom_budget_set(full, 0.50f, 0.20f, 0.30f);
 
     std::ofstream csv(argv[2]);

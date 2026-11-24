@@ -213,8 +213,8 @@ int main() {
 
     // The persistence reference is elapsed-time based, not callback-count based.
     dsp::AdaptiveController cut_small, cut_large;
-    cut_small.update_gain_cut_confidence(-30.f, -18.f, 0.f, 48000.f, 480);
-    cut_large.update_gain_cut_confidence(-30.f, -18.f, 0.f, 48000.f, 480);
+    cut_small.update_gain_cut_confidence(-6.f, -18.f, 0.f, 48000.f, 480);
+    cut_large.update_gain_cut_confidence(-6.f, -18.f, 0.f, 48000.f, 480);
     float small_cut = 0.f, large_cut = 0.f;
     for (int i = 0; i < 100; ++i)
         small_cut = cut_small.update_gain_cut_confidence(

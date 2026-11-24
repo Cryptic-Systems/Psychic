@@ -1,10 +1,11 @@
 /**
- * DSP ENGINE — Core processor
+ * Psychic — Core processor (`dsp_*` C ABI)
  *
  * Pipeline: EQ → auto-bass shelf → speaker/VB → preamp → DVC → limiter → dither
  * Optional SRC via dsp_process_src then full pipeline.
  * Control mailbox applied at start of each process block.
- * v0.6.0: level meters, offline analyze/probe, online auto-bass, auto-DVC (RMS).
+ * v0.6.0: level meters, offline analyze/probe, online auto-bass, auto-DVC (RMS),
+ * headroom budget, auto-preamp/VB, crest hint, silence hygiene.
  */
 
 #include "dsp_engine.h"
@@ -931,7 +932,7 @@ static void process_block(DspEngine* eng, sample_t* interleaved, int frames) {
 
 extern "C" {
 
-const char* dsp_version(void) { return "0.6.0"; }
+const char* dsp_version(void) { return "0.6.1"; }
 
 DspEngine* dsp_create(const DspConfig* cfg) {
     if (!cfg || cfg->channels < 1 || cfg->channels > kMaxChannels ||

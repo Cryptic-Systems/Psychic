@@ -41,6 +41,30 @@ int main() {
     const auto rising_track = track_a.update_track_state(0.1, 0.01, 48000.f, 480);
     if (rising_track.loudness_trend_db <= 0.f) return 24;
     if (rising_track.bass_prominence_db >= 0.f) return 25;
+    // Sustained rising and falling sections gain confidence; a one-block
+    // transient does not become a section transition.
+    dsp::AdaptiveController rising_section;
+    rising_section.update_track_state(0.01, 0.001, 48000.f, 480);
+    dsp::AdaptiveTrackState rising_state{};
+    for (int i = 0; i < 120; ++i)
+        rising_state = rising_section.update_track_state(0.1, 0.01, 48000.f, 480);
+    if (rising_state.section_transition != dsp::kSectionRising) return 32;
+    if (rising_state.section_transition_confidence < 0.18f) return 33;
+    dsp::AdaptiveController falling_section;
+    falling_section.update_track_state(0.1, 0.01, 48000.f, 480);
+    dsp::AdaptiveTrackState falling_state{};
+    for (int i = 0; i < 120; ++i)
+        falling_state = falling_section.update_track_state(0.01, 0.001, 48000.f, 480);
+    if (falling_state.section_transition != dsp::kSectionFalling) return 34;
+    dsp::AdaptiveController isolated_transient;
+    isolated_transient.update_track_state(0.01, 0.001, 48000.f, 480);
+    isolated_transient.update_track_state(1.0, 0.1, 48000.f, 480);
+    dsp::AdaptiveTrackState after_transient{};
+    for (int i = 0; i < 30; ++i)
+        after_transient = isolated_transient.update_track_state(
+            0.01, 0.001, 48000.f, 480);
+    if (after_transient.section_transition != dsp::kSectionSteady) return 35;
+    if (after_transient.section_transition_confidence > 0.18f) return 36;
     dsp::AdaptiveController track_large_block;
     dsp::AdaptiveController track_small_blocks;
     track_large_block.update_track_state(0.01, 0.001, 48000.f, 480);
@@ -96,6 +120,8 @@ int main() {
     published.track_bass_rms_db = -25.0f;
     published.track_loudness_trend_db = 6.0f;
     published.track_bass_prominence_db = -13.0f;
+    published.section_transition = dsp::kSectionRising;
+    published.section_transition_confidence = 0.72f;
     published.budget_peak_db = -4.0f;
     published.bass_target_db = 4.0f;
     published.bass_applied_db = 2.5f;
@@ -111,6 +137,8 @@ int main() {
     if (std::fabs(observed.track_bass_rms_db - published.track_bass_rms_db) > 1.0e-6f) return 29;
     if (std::fabs(observed.track_loudness_trend_db - published.track_loudness_trend_db) > 1.0e-6f) return 30;
     if (std::fabs(observed.track_bass_prominence_db - published.track_bass_prominence_db) > 1.0e-6f) return 31;
+    if (observed.section_transition != published.section_transition) return 37;
+    if (std::fabs(observed.section_transition_confidence - published.section_transition_confidence) > 1.0e-6f) return 38;
     if (std::fabs(observed.budget_peak_db - published.budget_peak_db) > 1.0e-6f) return 20;
     if (std::fabs(observed.bass_target_db - 4.0f) > 1.0e-6f) return 14;
     if (std::fabs(observed.bass_applied_db - 2.5f) > 1.0e-6f) return 15;

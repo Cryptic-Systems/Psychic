@@ -1,11 +1,11 @@
 name: dsp_engine
 description: >
-  Flutter FFI bindings for DSP ENGINE — 64-bit audio processing with
+  Flutter FFI bindings for Psychic — 64-bit audio processing with
   Direct Volume Control (DVC). Designed for integration with Resonate
   (com.aetherion.resonate). This package is a library, not a standalone app.
 version: 0.3.2
-homepage: https://github.com/innotrepid/DSP-ENGINE
-repository: https://github.com/innotrepid/DSP-ENGINE
+homepage: https://github.com/Cryptic-Systems/Psychic
+repository: https://github.com/Cryptic-Systems/Psychic
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -39,7 +39,7 @@ flutter:
 
 ffigen:
   name: DspEngineBindings
-  description: Auto-generated bindings for DSP ENGINE C ABI
+  description: Auto-generated bindings for the Psychic C ABI
   output: 'lib/src/dsp_engine_bindings.g.dart'
   headers:
     entry-points:

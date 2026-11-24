@@ -11,7 +11,7 @@ static TrackAnalysisSummary profile() {
     s.sample_peak_db=-1.f; s.mean_crest_db=10.f; s.max_crest_db=14.f;
     s.crest_p90_db=6.f; s.high_crest_seconds_ratio=.01f;
     s.loudness_p10_db=-20.f; s.loudness_p50_db=-18.f;
-    s.loudness_p95_db=-16.f; s.loudness_range_db=4.f;
+    s.loudness_p95_db=-8.f; s.loudness_range_db=4.f;
     return s;
 }
 static float confidence(const TrackAnalysisSummary& s, TrackTrait trait) {

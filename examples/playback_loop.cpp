@@ -76,7 +76,7 @@ int main()
         std::printf("dsp_create failed\n");
         return 1;
     }
-    std::printf("DSP ENGINE %s\n", dsp_version());
+    std::printf("Psychic %s\n", dsp_version());
 
     dsp_dvc_set_gain_db(eng, -3.0f);
     dsp_limiter_enable(eng, 1);

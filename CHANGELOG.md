@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased] — Adaptive Audio Control Engine
+
+### Added
+- Internal AACE coordination layer for shared headroom allocation and time-based adaptive control smoothing
+- Separate pre-enhancement control RMS so auto-gain does not counteract automatic bass/preamp boosts
+- Focused tests for headroom allocation and block-size-independent smoothing
+- Architecture and validation notes in `docs/ADAPTIVE_CONTROL_ENGINE.md`
+
+### Changed
+- Auto-gain headroom is based on the current post-user-EQ source peak, not stale post-limiter telemetry
+- Auto-bass, auto-preamp, virtual-bass, and auto-gain target transitions use elapsed-time smoothing
+
+### Compatibility
+- No public C ABI, Flutter package, or Resonate integration identifiers changed
+
+
 ## [0.6.1] — 2026-11-24
 
 ### Branding

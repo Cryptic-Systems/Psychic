@@ -100,8 +100,14 @@ int main(int argc, char** argv) {
     cfg.limiter_attack_ms = 0.1f;
     cfg.limiter_lookahead_ms = 2.0f;
 
+    DspEngine* baseline = dsp_create(&cfg);
     DspEngine* eng = dsp_create(&cfg);
-    if (!eng) { std::fprintf(stderr, "dsp_create failed\n"); return 3; }
+    if (!baseline || !eng) {
+        std::fprintf(stderr, "dsp_create failed\\n");
+        if (baseline) dsp_destroy(baseline);
+        if (eng) dsp_destroy(eng);
+        return 3;
+    }
     dsp_auto_bass_enable(eng, 1);
     dsp_auto_bass_set_target_db(eng, 6.0f);
     dsp_auto_bass_set_margin_db(eng, 1.0f);
@@ -141,7 +147,7 @@ int main(int argc, char** argv) {
             dsp_process(eng, in, output.data(), frames) != DSP_OK) {
             std::fprintf(stderr, "dsp_process failed at %.3f s\n",
                          static_cast<double>(offset) / wi.sample_rate);
-            dsp_destroy(eng); return 5;
+            dsp_destroy(baseline); dsp_destroy(eng); return 5;
         }
         double in_ms = 0.0, base_ms = 0.0, out_ms = 0.0;
         for (int i = 0; i < frames * 2; ++i) {
@@ -208,6 +214,7 @@ int main(int argc, char** argv) {
     std::printf("per_block_output_delta_range_db=%.2f..%.2f\n",
         min_output_delta, max_output_delta);
     std::printf("csv=%s\n", argv[2]);
+    dsp_destroy(baseline);
     dsp_destroy(baseline);
     dsp_destroy(eng);
     return 0;

@@ -332,7 +332,7 @@ DSP_API float    dsp_auto_bass_get_applied_db(const DspEngine* eng);
  * overwritten each block — prefer bias API while auto-gain is on).
  *
  * target_rms_db: typical −20 … −14 dBFS short-term
- * max_boost_db / max_cut_db: clamp on the correction (default max cut 6 dB;
+ * max_boost_db / max_cut_db: clamp on the correction (default max cut 3 dB;
  * max cut can be raised explicitly up to 24 dB)
  * window_ms: RMS integration time (200–3000; default 400)
  */

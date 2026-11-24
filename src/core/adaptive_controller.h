@@ -199,6 +199,7 @@ public:
         track_short_ms_ = track_long_ms_ = track_bass_ms_ = 0.0;
         track_state_initialized_ = false;
         section_transition_confidence_ = 0.f;
+        section_transition_candidate_ = 0;
         initialized_ = false;
     }
 
@@ -239,9 +240,20 @@ public:
         // transient barely moves the rolling envelopes and cannot assert a
         // section transition. Confidence is diagnostic; it does not alter gain.
         const float trend_magnitude = std::fabs(out.loudness_trend_db);
-        const float confidence_target = std::max(0.f, std::min(
-            1.f, (trend_magnitude - kTransitionTrendFloorDb) /
-                    kTransitionTrendRangeDb));
+        const int direction = trend_magnitude >= kTransitionDirectionFloorDb
+            ? (out.loudness_trend_db > 0.f ? 1 : -1) : 0;
+
+        // A direction reversal must earn confidence independently. Do not let
+        // a rising section's accumulated confidence instantly label a fall.
+        if (direction != 0 && section_transition_candidate_ != 0 &&
+            direction != section_transition_candidate_) {
+            section_transition_confidence_ = 0.f;
+        }
+        section_transition_candidate_ = direction;
+
+        const float confidence_target = direction == 0 ? 0.f : std::max(0.f,
+            std::min(1.f, (trend_magnitude - kTransitionTrendFloorDb) /
+                              kTransitionTrendRangeDb));
         const double confidence_tau = confidence_target > section_transition_confidence_
             ? kTransitionConfidenceAttackSeconds
             : kTransitionConfidenceReleaseSeconds;
@@ -250,9 +262,9 @@ public:
         section_transition_confidence_ += confidence_alpha *
             (confidence_target - section_transition_confidence_);
         out.section_transition_confidence = section_transition_confidence_;
-        if (trend_magnitude >= kTransitionDirectionFloorDb &&
+        if (direction != 0 &&
             section_transition_confidence_ >= kTransitionConfidenceThreshold) {
-            out.section_transition = out.loudness_trend_db > 0.f
+            out.section_transition = direction > 0
                 ? kSectionRising : kSectionFalling;
         }
         return out;
@@ -379,6 +391,7 @@ private:
     double track_bass_ms_ = 0.0;
     bool track_state_initialized_ = false;
     float section_transition_confidence_ = 0.f;
+    int section_transition_candidate_ = 0;
     bool initialized_ = false;
 };
 

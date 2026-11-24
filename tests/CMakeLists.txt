@@ -81,9 +81,18 @@ add_test(NAME track_intelligence_calibration_tests COMMAND track_intelligence_ca
 add_executable(track_scan_session_tests track_scan_session_tests.cpp)
 target_include_directories(track_scan_session_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 if(MSVC)
-    # Keep IEEE non-finite checks observable in this validation target.
     target_compile_options(track_scan_session_tests PRIVATE /fp:precise)
 else()
     target_compile_options(track_scan_session_tests PRIVATE -fexceptions -frtti -fno-fast-math)
 endif()
 add_test(NAME track_scan_session_tests COMMAND track_scan_session_tests)
+
+# Host-side bounded analysis cache identity and eviction tests.
+add_executable(track_analysis_cache_tests track_analysis_cache_tests.cpp)
+target_include_directories(track_analysis_cache_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
+if(MSVC)
+    target_compile_options(track_analysis_cache_tests PRIVATE /fp:precise)
+else()
+    target_compile_options(track_analysis_cache_tests PRIVATE -fexceptions -frtti -fno-fast-math)
+endif()
+add_test(NAME track_analysis_cache_tests COMMAND track_analysis_cache_tests)

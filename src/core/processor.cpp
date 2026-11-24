@@ -2043,3 +2043,10 @@ DspError dsp_silence_hygiene_set_hold_ms(DspEngine* eng, float hold_ms) {
 }
 
 } // extern "C"
+
+
+// Internal offline-evaluation hook. Deliberately not part of the public C ABI.
+bool dsp_internal_read_adaptive_telemetry(
+    DspEngine* eng, dsp::AdaptiveDecisionSnapshot* out) noexcept {
+    return eng && out && eng->adaptive_telemetry.read(*out);
+}

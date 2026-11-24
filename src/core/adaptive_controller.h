@@ -249,7 +249,7 @@ public:
             direction != section_transition_candidate_) {
             section_transition_confidence_ = 0.f;
         }
-        section_transition_candidate_ = direction;
+        if (direction != 0) section_transition_candidate_ = direction;
 
         const float confidence_target = direction == 0 ? 0.f : std::max(0.f,
             std::min(1.f, (trend_magnitude - kTransitionTrendFloorDb) /
@@ -261,6 +261,8 @@ public:
             1.0 - std::exp(-dt / confidence_tau));
         section_transition_confidence_ += confidence_alpha *
             (confidence_target - section_transition_confidence_);
+        if (section_transition_confidence_ < 0.01f)
+            section_transition_candidate_ = 0;
         out.section_transition_confidence = section_transition_confidence_;
         if (direction != 0 &&
             section_transition_confidence_ >= kTransitionConfidenceThreshold) {

@@ -17,7 +17,7 @@ int main() {
         analyzer.add_block(-120.f, -120.f, -120.f, 0.01);
 
     const auto result = analyzer.summary();
-    if (std::fabs(result.duration_seconds - 20.01) > 1.0e-6) return 1;
+    if (std::fabs(result.duration_seconds - 21.01) > 1.0e-6) return 1;
     if (std::fabs(result.active_seconds - 20.01) > 1.0e-6) return 2;
     if (std::fabs(result.silence_seconds - 1.0) > 1.0e-6) return 3;
     if (result.integrated_rms_db < -16.f || result.integrated_rms_db > -14.f) return 4;

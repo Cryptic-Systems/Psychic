@@ -1,5 +1,5 @@
 /**
- * Simple throughput benchmarks for DSP ENGINE.
+ * Simple throughput benchmarks for Psychic.
  */
 
 #include "dsp_engine.h"
@@ -57,7 +57,7 @@ int main() {
     double msamples_per_s = (total_samples / 1e6) / elapsed_s;
     double realtime_factor = (total_samples / 48000.0 / 2) / elapsed_s; // stereo
 
-    printf("=== DSP ENGINE benchmarks ===\n");
+    printf("=== Psychic benchmarks ===\n");
     printf("Block size     : %d frames\n", frames);
     printf("Iterations     : %d\n", iterations);
     printf("Elapsed        : %.3f s\n", elapsed_s);

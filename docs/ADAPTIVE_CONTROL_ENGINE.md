@@ -39,7 +39,7 @@ The audio callback remains the only place that processes audio samples. AACE use
 
 The allocator measures the current block's peak after user EQ and before adaptive enhancements. It subtracts the configured safety margin and a transient reserve, then distributes the remaining positive-gain budget according to the existing bass, preamp, and gain weights.
 
-The headroom estimate contracts and recovers with time-based smoothing. It deliberately does not subtract the limiter's own gain reduction from the next block's enhancement budget: doing so can create a feedback loop in which a transient makes every adaptive stage withdraw gain, even after the transient has passed. The limiter remains the final peak-safety boundary.
+The headroom estimate contracts and recovers with time-based smoothing. It deliberately does not subtract the limiter's own gain reduction from the next block's enhancement budget: doing so can create a feedback loop in which a transient makes every adaptive stage withdraw gain, even after the transient has passed. The limiter remains the final peak-safety boundary.\n\nA second detector separates isolated high-crest events from recurring pressure. It compares post-EQ source peak with unweighted source RMS. Crest excess above 12 dB is initially discounted for adaptive headroom; repeated high-crest blocks build a time-smoothed transient-density state, so recurring peaks progressively regain influence. The actual source peak remains recorded, and the limiter still sees and protects every sample. This changes enhancement budgeting only; it is not a replacement for clipping detection or limiting.
 
 ### Independent loudness reference
 
@@ -80,7 +80,7 @@ The limiter field is its existing peak-held gain-reduction meter, not a per-samp
 
 ## Validation
 
-A focused unit-test target covers weighted headroom allocation, transient headroom response, and block-size-independent gain smoothing.
+A focused unit-test target covers weighted headroom allocation, isolated-versus-repeated high-crest events, telemetry coherence, and block-size-independent gain smoothing.
 
 Before merging, run the complete CMake build and test suite on the supported CI platforms, then run listening comparisons with:
 - isolated transient peaks;
@@ -95,7 +95,7 @@ Record limiter gain reduction, auto-gain applied dB, auto-bass applied dB, pream
 ## Next AACE stages
 
 1. Validate decision telemetry against listening tests, then decide which stable diagnostics should be exposed to the host.
-2. Separate transient protection from sustained loudness management more fully, then tune limiter recovery against real material.
+2. Validate transient-density thresholds and attack/release against isolated clicks, percussion, clipped masters, and sustained overload material; then tune limiter recovery.
 3. Add rolling track-state analysis for live streams and richer pre-analysis hints for local tracks.
 4. Add listener and output-device profiles, with safety constraints always taking priority.
 5. Expose opt-in controls and observability to the host only after the internal behaviour is validated.

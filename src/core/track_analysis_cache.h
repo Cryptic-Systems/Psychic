@@ -92,7 +92,14 @@ public:
             return true;
         }
 
-        if (entries_.size() >= capacity_) {
+        Entry entry{};
+        entry.identity = identity;
+        entry.snapshot = snapshot;
+        entry.last_access = ++clock_;
+        // Append before eviction so an allocation failure preserves the
+        // existing cache contents.
+        entries_.push_back(std::move(entry));
+        if (entries_.size() > capacity_) {
             const auto oldest = std::min_element(entries_.begin(), entries_.end(),
                 [](const Entry& a, const Entry& b) {
                     return a.last_access < b.last_access;
@@ -102,11 +109,6 @@ public:
                 ++evictions_;
             }
         }
-        Entry entry{};
-        entry.identity = identity;
-        entry.snapshot = snapshot;
-        entry.last_access = ++clock_;
-        entries_.push_back(std::move(entry));
         return true;
     }
 

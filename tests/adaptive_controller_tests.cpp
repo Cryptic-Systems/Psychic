@@ -178,6 +178,62 @@ int main() {
         std::fabs(block_track.bass_rms_db - multi_block_track.bass_rms_db) > 1.0e-3f)
         return 26;
 
+    // Gain cuts require sustained control-level excess. Quiet material gets
+    // no cut budget; a newly loud section is protected while its transition
+    // is developing; a stable loud passage earns the configured cut budget.
+    const double quiet_power = std::pow(10.0, -30.0 / 10.0);
+    const double loud_power = std::pow(10.0, -6.0 / 10.0);
+    dsp::AdaptiveController gain_policy;
+    float quiet_cut_confidence = 0.f;
+    for (int i = 0; i < 1000; ++i) {
+        const auto state = gain_policy.update_track_state(
+            quiet_power, quiet_power * 0.1, 48000.f, 480);
+        quiet_cut_confidence = gain_policy.update_gain_cut_confidence(
+            -30.f, -18.f, state.section_transition_confidence, 48000.f, 480);
+    }
+    if (quiet_cut_confidence > 0.01f) return 60;
+
+    float transition_cut_confidence = 0.f;
+    for (int i = 0; i < 100; ++i) {
+        const auto state = gain_policy.update_track_state(
+            loud_power, loud_power * 0.1, 48000.f, 480);
+        transition_cut_confidence = gain_policy.update_gain_cut_confidence(
+            -6.f, -18.f, state.section_transition_confidence, 48000.f, 480);
+    }
+    dsp::AdaptiveController stable_loud_policy;
+    float stable_cut_confidence = 0.f;
+    for (int i = 0; i < 1200; ++i) {
+        const auto state = stable_loud_policy.update_track_state(
+            loud_power, loud_power * 0.1, 48000.f, 480);
+        stable_cut_confidence = stable_loud_policy.update_gain_cut_confidence(
+            -6.f, -18.f, state.section_transition_confidence, 48000.f, 480);
+    }
+    if (!(transition_cut_confidence < stable_cut_confidence)) return 61;
+    if (stable_cut_confidence < 0.90f) return 62;
+
+    // The persistence reference is elapsed-time based, not callback-count based.
+    dsp::AdaptiveController cut_small, cut_large;
+    const auto initial_small = cut_small.update_track_state(
+        quiet_power, quiet_power * 0.1, 48000.f, 480);
+    const auto initial_large = cut_large.update_track_state(
+        quiet_power, quiet_power * 0.1, 48000.f, 480);
+    cut_small.update_gain_cut_confidence(-30.f, -18.f,
+        initial_small.section_transition_confidence, 48000.f, 480);
+    cut_large.update_gain_cut_confidence(-30.f, -18.f,
+        initial_large.section_transition_confidence, 48000.f, 480);
+    float small_cut = 0.f, large_cut = 0.f;
+    for (int i = 0; i < 100; ++i) {
+        const auto state = cut_small.update_track_state(
+            loud_power, loud_power * 0.1, 48000.f, 480);
+        small_cut = cut_small.update_gain_cut_confidence(
+            -6.f, -18.f, state.section_transition_confidence, 48000.f, 480);
+    }
+    const auto large_state = cut_large.update_track_state(
+        loud_power, loud_power * 0.1, 48000.f, 48000);
+    large_cut = cut_large.update_gain_cut_confidence(
+        -6.f, -18.f, large_state.section_transition_confidence, 48000.f, 48000);
+    if (std::fabs(small_cut - large_cut) > 2.0e-3f) return 63;
+
     // Smoothing is based on elapsed audio time, not a fixed per-block step.
     dsp::AdaptiveController smooth_a;
     dsp::AdaptiveController smooth_b;
@@ -220,6 +276,8 @@ int main() {
     published.section_transition = dsp::kSectionRising;
     published.section_transition_confidence = 0.72f;
     published.anticipatory_gain_hint_db = -0.45f;
+    published.gain_cut_confidence = 0.65f;
+    published.gain_cut_limit_db = 1.95f;
     published.budget_peak_db = -4.0f;
     published.bass_target_db = 4.0f;
     published.bass_applied_db = 2.5f;
@@ -238,6 +296,8 @@ int main() {
     if (observed.section_transition != published.section_transition) return 37;
     if (std::fabs(observed.section_transition_confidence - published.section_transition_confidence) > 1.0e-6f) return 38;
     if (std::fabs(observed.anticipatory_gain_hint_db - published.anticipatory_gain_hint_db) > 1.0e-6f) return 49;
+    if (std::fabs(observed.gain_cut_confidence - published.gain_cut_confidence) > 1.0e-6f) return 64;
+    if (std::fabs(observed.gain_cut_limit_db - published.gain_cut_limit_db) > 1.0e-6f) return 65;
     if (std::fabs(observed.budget_peak_db - published.budget_peak_db) > 1.0e-6f) return 20;
     if (std::fabs(observed.bass_target_db - 4.0f) > 1.0e-6f) return 14;
     if (std::fabs(observed.bass_applied_db - 2.5f) > 1.0e-6f) return 15;

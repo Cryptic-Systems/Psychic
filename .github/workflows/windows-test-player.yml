@@ -1,0 +1,40 @@
+name: Windows Psychic Test Player
+
+on:
+  push:
+    branches: [feature/adaptive-audio-control-engine]
+  workflow_dispatch:
+
+jobs:
+  build-windows-test-player:
+    name: Build and package Windows test player
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: |
+          cmake -B build -DCMAKE_BUILD_TYPE=Release -DDSP_BUILD_TESTS=ON -DDSP_BUILD_EXAMPLES=OFF -DDSP_BACKEND_AAUDIO=OFF -DDSP_BACKEND_WASAPI=ON -DDSP_BACKEND_COREAUDIO=OFF -DDSP_BACKEND_ALSA=OFF
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Unit tests
+        shell: pwsh
+        run: |
+          $env:PATH = "$PWD\build\Release;$PWD\build;$env:PATH"
+          ctest --test-dir build -C Release --output-on-failure --timeout 60
+      - name: Package portable app
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force package | Out-Null
+          Copy-Item build/tests/Release/psychic_test_player.exe package/
+          Copy-Item build/tests/Release/psychic_playback_simulator.exe package/
+          Copy-Item build/tests/Release/dsp_engine.dll package/
+          Copy-Item tests/PSYCHIC_WINDOWS_TEST_PLAYER.md package/README.txt
+          Compress-Archive -Path package/* -DestinationPath PsychicTestPlayer-Windows.zip -Force
+      - name: Upload app
+        uses: actions/upload-artifact@v4
+        with:
+          name: PsychicTestPlayer-Windows
+          path: PsychicTestPlayer-Windows.zip
+          if-no-files-found: error
+          retention-days: 14

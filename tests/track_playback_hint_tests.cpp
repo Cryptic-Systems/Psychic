@@ -71,9 +71,19 @@ int main() {
         dsp_destroy(engine);
         return 15;
     }
-    if (std::fabs(dsp_limiter_get_crest_hint(engine) - 11.5f) > 1e-4f) {
+    // Hints are queued from the host thread and applied at the next block.
+    if (std::fabs(dsp_limiter_get_crest_hint(engine)) > 1e-4f) {
         dsp_destroy(engine);
         return 16;
+    }
+    float silence[256]{};
+    if (dsp_process(engine, silence, silence, 128) != DSP_OK) {
+        dsp_destroy(engine);
+        return 20;
+    }
+    if (std::fabs(dsp_limiter_get_crest_hint(engine) - 11.5f) > 1e-4f) {
+        dsp_destroy(engine);
+        return 21;
     }
     // A rejected scan must not overwrite the last valid playback hint.
     auto invalid = completed_scan();
@@ -82,7 +92,8 @@ int main() {
         dsp_destroy(engine);
         return 17;
     }
-    if (std::fabs(dsp_limiter_get_crest_hint(engine) - 11.5f) > 1e-4f) {
+    if (dsp_process(engine, silence, silence, 128) != DSP_OK ||
+        std::fabs(dsp_limiter_get_crest_hint(engine) - 11.5f) > 1e-4f) {
         dsp_destroy(engine);
         return 18;
     }

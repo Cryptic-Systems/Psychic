@@ -2,6 +2,7 @@
 #include <windows.h>
 #include <commdlg.h>
 #include <shellapi.h>
+#include <algorithm>
 #include <string>
 #include <fstream>
 #include <sstream>
@@ -42,7 +43,7 @@ void process_audio(){
     if(attr==INVALID_FILE_ATTRIBUTES){MessageBoxW(GetParent(g_input),L"psychic_playback_simulator.exe is missing. Extract the complete ZIP and keep both EXEs together.",L"Psychic Test Player",MB_ICONERROR);return;}
     int sel=static_cast<int>(SendMessageW(g_mode,CB_GETCURSEL,0,0));const wchar_t* modes[]={L"both",L"none",L"bass",L"crest"};
     if(sel<0||sel>3){set_log(L"Select a valid hint mode.");return;}
-    std::wstring cmd=quote(sim)+L" "+quote(in)+L" "+quote(out)+L" "+modes[sel<0?3:sel];
+    std::wstring cmd=quote(sim)+L" "+quote(in)+L" "+quote(out)+L" "+modes[sel];
     SECURITY_ATTRIBUTES sa{sizeof(sa),nullptr,TRUE};HANDLE readPipe{},writePipe{};
     if(!CreatePipe(&readPipe,&writePipe,&sa,0)){set_log(L"Could not create process output pipe.");return;}
     SetHandleInformation(readPipe,HANDLE_FLAG_INHERIT,0);

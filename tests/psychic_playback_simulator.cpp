@@ -323,6 +323,14 @@ int main(int argc, char** argv) {
             << dsp_limiter_get_crest_hint(engine) << '\n';
     }
 
+    csv.flush();
+    if (!csv) {
+        dsp_destroy(engine);
+        std::fprintf(stderr, "Failed while writing CSV telemetry: %s\n", csv_path.c_str());
+        return 5;
+    }
+    csv.close();
+
     if (!write_float_wav(argv[2], wav.sample_rate, wav.channels, output)) {
         dsp_destroy(engine);
         std::fprintf(stderr, "Could not write output WAV (RIFF limit may have been exceeded).\n");

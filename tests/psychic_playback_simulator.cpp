@@ -64,7 +64,7 @@ bool read_header(std::ifstream& f, WavInfo& w) {
             w.bits = u16(fmt + 14);
             if (w.format == 0xfffe && size >= 40) {
                 // WAVE_FORMAT_EXTENSIBLE: subformat tag is the first WORD of GUID.
-                f.seekg(start + 24);
+                f.seekg(start + static_cast<std::streamoff>(24));
                 unsigned char sub[2]{};
                 if (!read_exact(f, sub, 2)) return false;
                 w.format = u16(sub);

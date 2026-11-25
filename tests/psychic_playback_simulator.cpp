@@ -132,6 +132,8 @@ float decode_sample(const unsigned char* p, uint16_t format, uint16_t bits) {
 bool load_wav(const char* path, WavInfo& w, std::vector<float>& pcm) {
     std::ifstream f(path, std::ios::binary);
     if (!f || !read_header(f, w)) return false;
+    constexpr uint32_t kMaxAudioDataBytes = 128u * 1024u * 1024u;
+    if (w.data_bytes > kMaxAudioDataBytes) return false;
     const std::size_t bytes_per_sample = w.bits / 8;
     if (w.data_bytes % w.block_align) return false;
     const std::size_t frames = w.data_bytes / w.block_align;

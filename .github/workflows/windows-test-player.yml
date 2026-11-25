@@ -5,6 +5,9 @@ on:
     branches: [feature/adaptive-audio-control-engine]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build-windows-test-player:
     name: Build and package Windows test player

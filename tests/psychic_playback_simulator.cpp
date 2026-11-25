@@ -47,12 +47,33 @@ bool read_header(std::ifstream& f, WavInfo& w) {
     if (!read_exact(f, head, sizeof(head)) ||
         std::memcmp(head, "RIFF", 4) || std::memcmp(head + 8, "WAVE", 4))
         return false;
+
+    // Honor the RIFF boundary and reject chunks that extend past it. This
+    // prevents malformed chunk sizes from wrapping seeks or reading past EOF.
+    const std::streamoff file_end = [&]() {
+        f.seekg(0, std::ios::end);
+        const auto p = f.tellg();
+        return p < 0 ? std::streamoff{-1} : static_cast<std::streamoff>(p);
+    }();
+    const uint32_t riff_size = u32(head + 4);
+    if (file_end < 12 || riff_size < 4) return false;
+    const std::streamoff riff_end = 8 + static_cast<std::streamoff>(riff_size);
+    if (riff_end < 12 || riff_end > file_end) return false;
+    f.seekg(12);
+
     bool have_fmt = false, have_data = false;
     while (f && !(have_fmt && have_data)) {
         unsigned char chunk[8]{};
         if (!read_exact(f, chunk, sizeof(chunk))) break;
         const uint32_t size = u32(chunk + 4);
         const auto start = f.tellg();
+        if (start < 0) return false;
+        const std::streamoff chunk_end = static_cast<std::streamoff>(start) +
+                                         static_cast<std::streamoff>(size);
+        if (chunk_end < start || chunk_end > riff_end) return false;
+        const std::streamoff next = chunk_end + static_cast<std::streamoff>(size & 1u);
+        if (next < chunk_end || next > riff_end) return false;
+
         if (!std::memcmp(chunk, "fmt ", 4)) {
             if (size < 16) return false;
             unsigned char fmt[16]{};
@@ -64,7 +85,7 @@ bool read_header(std::ifstream& f, WavInfo& w) {
             w.bits = u16(fmt + 14);
             if (w.format == 0xfffe && size >= 40) {
                 // WAVE_FORMAT_EXTENSIBLE: subformat tag is the first WORD of GUID.
-                f.seekg(start + static_cast<std::streamoff>(24));
+                f.seekg(static_cast<std::streamoff>(start) + 24);
                 unsigned char sub[2]{};
                 if (!read_exact(f, sub, 2)) return false;
                 w.format = u16(sub);
@@ -75,7 +96,7 @@ bool read_header(std::ifstream& f, WavInfo& w) {
             w.data_bytes = size;
             have_data = true;
         }
-        f.seekg(start + static_cast<std::streamoff>(size + (size & 1u)));
+        f.seekg(next);
     }
     if (!have_fmt || !have_data || w.channels < 1 || w.channels > 8 ||
         w.sample_rate < 8000 || w.sample_rate > 384000 || !w.block_align)

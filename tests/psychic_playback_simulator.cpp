@@ -217,6 +217,8 @@ int main(int argc, char** argv) {
     cfg.enable_eq = 0;
     cfg.enable_dvc = 1;
     cfg.enable_limiter = 1;
+    cfg.enable_speaker = 1;
+    cfg.virtual_bass = 0.35f;
     cfg.enable_dither = 0;
     cfg.dither_mode = DSP_DITHER_NONE;
     cfg.limiter_threshold_db = -1.0f;
@@ -235,6 +237,8 @@ int main(int argc, char** argv) {
     dsp_auto_bass_set_target_db(engine, 4.f);
     dsp_auto_bass_set_margin_db(engine, 1.f);
     dsp_auto_bass_enable(engine, 1);
+    dsp_auto_vb_set_target(engine, 0.35f);
+    dsp_auto_vb_enable(engine, 1);
 
     if (mode != "none") {
         DspAnalysisResult hint{};

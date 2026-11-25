@@ -1,0 +1,102 @@
+#include "core/track_playback_hint.h"
+
+#include <cmath>
+#include <cstdio>
+#include <limits>
+
+using namespace dsp;
+
+static TrackScanSnapshot completed_scan() {
+    TrackScanSnapshot s{};
+    s.state = TrackScanState::Completed;
+    s.report_ready = true;
+    s.intelligence.sufficient_data = true;
+    s.analysis.duration_seconds = 180.0;
+    s.analysis.active_seconds = 170.0;
+    s.analysis.bass_rms_db = -22.f;
+    s.analysis.mean_crest_db = 11.5f;
+    return s;
+}
+
+int main() {
+    TrackPlaybackHint hint{};
+    auto scan = completed_scan();
+    if (!make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 1\n"); return 1; }
+    if (std::fabs(hint.analysis.bass_energy_db + 22.f) > 1e-5f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 2\n"); return 2; }
+    if (std::fabs(hint.analysis.crest_db - 11.5f) > 1e-5f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 3\n"); return 3; }
+    if (hint.max_safe_bass_db != 24.f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 4\n"); return 4; }
+
+    // The adapter cannot promote partial or insufficient scans to hints.
+    scan.state = TrackScanState::Scanning;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 5\n"); return 5; }
+    scan = completed_scan();
+    scan.report_ready = false;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 6\n"); return 6; }
+    scan = completed_scan();
+    scan.intelligence.sufficient_data = false;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 7\n"); return 7; }
+
+    // Malformed scanner metrics fail closed; outputs are not partially written.
+    scan = completed_scan();
+    scan.analysis.bass_rms_db = std::numeric_limits<float>::quiet_NaN();
+    hint.analysis.crest_db = 77.f;
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 8\n"); return 8; }
+    if (hint.analysis.crest_db != 77.f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 9\n"); return 9; }
+    scan = completed_scan();
+    scan.analysis.mean_crest_db = std::numeric_limits<float>::infinity();
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 10\n"); return 10; }
+
+    // Valid boundary values are mapped to the playback API's narrower range.
+    scan = completed_scan();
+    scan.analysis.bass_rms_db = 24.f;
+    scan.analysis.mean_crest_db = 48.f;
+    if (!make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 11\n"); return 11; }
+    if (hint.analysis.bass_energy_db != 24.f ||
+        hint.analysis.crest_db != 24.f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 12\n"); return 12; }
+
+    scan = completed_scan();
+    scan.analysis.bass_rms_db = 25.f; // invalid scanner metric
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 19\n"); return 19; }
+
+    if (apply_track_playback_hint(nullptr, completed_scan()) !=
+        DSP_ERR_INVALID_ARG) { std::fprintf(stderr, "track_playback_hint_tests failure at check 13\n"); return 13; }
+
+    DspConfig config{};
+    config.sample_rate = 48000.f;
+    config.channels = 2;
+    config.max_block = 1024;
+    DspEngine* engine = dsp_create(&config);
+    if (!engine) { std::fprintf(stderr, "track_playback_hint_tests failure at check 14\n"); return 14; }
+    if (apply_track_playback_hint(engine, completed_scan()) != DSP_OK) {
+        dsp_destroy(engine);
+        return 15;
+    }
+    // Hints are queued from the host thread and applied at the next block.
+    if (std::fabs(dsp_limiter_get_crest_hint(engine)) > 1e-4f) {
+        dsp_destroy(engine);
+        return 16;
+    }
+    float silence[256]{};
+    if (dsp_process(engine, silence, silence, 128) != DSP_OK) {
+        dsp_destroy(engine);
+        return 20;
+    }
+    if (std::fabs(dsp_limiter_get_crest_hint(engine) - 11.5f) > 1e-4f) {
+        dsp_destroy(engine);
+        return 21;
+    }
+    // A rejected scan must not overwrite the last valid playback hint.
+    auto invalid = completed_scan();
+    invalid.report_ready = false;
+    if (apply_track_playback_hint(engine, invalid) != DSP_ERR_INVALID_ARG) {
+        dsp_destroy(engine);
+        return 17;
+    }
+    if (dsp_process(engine, silence, silence, 128) != DSP_OK ||
+        std::fabs(dsp_limiter_get_crest_hint(engine) - 11.5f) > 1e-4f) {
+        dsp_destroy(engine);
+        return 18;
+    }
+    dsp_destroy(engine);
+    return 0;
+}

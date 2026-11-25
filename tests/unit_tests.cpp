@@ -587,6 +587,83 @@ TEST(level_meter_and_auto_bass) {
 }
 
 
+TEST(auto_gain_default_cut_limit) {
+    DspEngine* eng = create_engine();
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_NEAR(dsp_auto_gain_get_max_cut_db(eng), 3.f, 0.001f);
+    EXPECT_EQ(dsp_auto_gain_set_max_cut_db(eng, 6.f), DSP_OK);
+    EXPECT_NEAR(dsp_auto_gain_get_max_cut_db(eng), 6.f, 0.001f);
+    EXPECT_EQ(dsp_auto_gain_set_max_cut_db(eng, 12.f), DSP_OK);
+    EXPECT_NEAR(dsp_auto_gain_get_max_cut_db(eng), 12.f, 0.001f);
+    dsp_destroy(eng);
+}
+
+TEST(auto_gain_default_cut_is_enforced) {
+    DspEngine* eng = create_engine();
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_EQ(dsp_limiter_enable(eng, 0), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_set_target_rms_db(eng, -18.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_enable(eng, 1), DSP_OK);
+
+    const int frames = 512;
+    std::vector<float> in(frames * 2), out(frames * 2);
+    for (int i = 0; i < frames; ++i) {
+        const float s = 0.5f * std::sin(2.f * 3.14159265f * 1000.f * i / 48000.f);
+        in[i * 2] = s;
+        in[i * 2 + 1] = s;
+    }
+    // Allow the 3 s sustained-level reference and cut confidence to settle.
+    for (int n = 0; n < 600; ++n)
+        EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+
+    const float applied = dsp_auto_gain_get_applied_db(eng);
+    EXPECT_TRUE(applied <= -2.5f);
+    EXPECT_TRUE(applied >= -3.1f);
+    dsp_destroy(eng);
+}
+
+TEST(auto_gain_cut_waits_for_sustained_level) {
+    DspEngine* eng = create_engine();
+    EXPECT_TRUE(eng != nullptr);
+    EXPECT_EQ(dsp_eq_enable(eng, 0), DSP_OK);
+    EXPECT_EQ(dsp_limiter_enable(eng, 0), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_set_target_rms_db(eng, -18.f), DSP_OK);
+    EXPECT_EQ(dsp_auto_gain_enable(eng, 1), DSP_OK);
+
+    const int frames = 1024;
+    std::vector<float> in(frames * 2), out(frames * 2);
+    int sample_index = 0;
+    auto process_tone = [&](float amplitude, int blocks) {
+        for (int block = 0; block < blocks; ++block) {
+            for (int i = 0; i < frames; ++i, ++sample_index) {
+                const float phase = 2.f * 3.14159265f * 1000.f *
+                    static_cast<float>(sample_index) / 48000.f;
+                const float sample = amplitude * std::sin(phase);
+                in[i * 2] = sample;
+                in[i * 2 + 1] = sample;
+            }
+            EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+        }
+    };
+
+    // Establish a quiet programme and let positive gain reach its boost cap.
+    process_tone(0.03f, 250);
+    EXPECT_TRUE(dsp_auto_gain_get_applied_db(eng) > 4.f);
+
+    // The first second of a new loud section should not receive the full cut.
+    process_tone(0.5f, 50);
+    const float transition_gain = dsp_auto_gain_get_applied_db(eng);
+
+    // Once the loud level is sustained and the transition settles, the
+    // configured conservative cut allowance can be used.
+    process_tone(0.5f, 500);
+    const float sustained_gain = dsp_auto_gain_get_applied_db(eng);
+    EXPECT_TRUE(transition_gain > sustained_gain + 1.0f);
+    EXPECT_TRUE(sustained_gain <= -2.5f);
+    EXPECT_TRUE(sustained_gain >= -3.1f);
+    dsp_destroy(eng);
+}
+
 TEST(auto_gain_rms) {
     DspEngine* eng = create_engine();
     EXPECT_EQ(dsp_limiter_enable(eng, 1), DSP_OK);
@@ -631,6 +708,42 @@ TEST(auto_gain_rms) {
 }
 
 
+TEST(auto_gain_bass_weighting) {
+    auto run_tone = [](float frequency_hz) {
+        DspEngine* eng = create_engine();
+        EXPECT_TRUE(eng != nullptr);
+        EXPECT_EQ(dsp_eq_enable(eng, 0), DSP_OK);
+        EXPECT_EQ(dsp_limiter_enable(eng, 0), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_set_target_rms_db(eng, -18.f), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_set_max_boost_db(eng, 6.f), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_set_max_cut_db(eng, 12.f), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_set_window_ms(eng, 200.f), DSP_OK);
+        EXPECT_EQ(dsp_auto_gain_enable(eng, 1), DSP_OK);
+
+        const int frames = 512;
+        std::vector<float> in(frames * 2), out(frames * 2);
+        for (int block = 0; block < 120; ++block) {
+            for (int i = 0; i < frames; ++i) {
+                const float phase = 2.f * 3.14159265f * frequency_hz
+                    * static_cast<float>(block * frames + i) / 48000.f;
+                const float sample = 0.25f * std::sin(phase);
+                in[i * 2] = sample;
+                in[i * 2 + 1] = sample;
+            }
+            EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+        }
+        const float applied = dsp_auto_gain_get_applied_db(eng);
+        dsp_destroy(eng);
+        return applied;
+    };
+
+    const float bass_gain = run_tone(60.f);
+    const float mid_gain = run_tone(1000.f);
+    // Similar peak levels should not cause sub-bass alone to pull down the mix.
+    EXPECT_GT(bass_gain, mid_gain + 1.0f);
+}
+
+
 TEST(headroom_budget_and_hints) {
     DspEngine* eng = create_engine();
     EXPECT_EQ(dsp_headroom_budget_set(eng, 0.6f, 0.2f, 0.2f), DSP_OK);
@@ -652,12 +765,12 @@ TEST(headroom_budget_and_hints) {
     ar.crest_db = 11.f;
     ar.bass_energy_db = -25.f;
     EXPECT_EQ(dsp_apply_analysis_hint(eng, &ar, 5.0f), DSP_OK);
-    EXPECT_NEAR(dsp_limiter_get_crest_hint(eng), 11.f, 1e-3f);
 
     const int frames = 512;
     std::vector<float> in(frames * 2, 0.1f), out(frames * 2);
     for (int n = 0; n < 10; ++n)
         EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    EXPECT_NEAR(dsp_limiter_get_crest_hint(eng), 11.f, 1e-3f);
     EXPECT_TRUE(std::isfinite(dsp_auto_preamp_get_applied_db(eng)));
     EXPECT_TRUE(dsp_auto_vb_get_applied(eng) >= 0.f);
     for (float s : out) EXPECT_TRUE(std::isfinite(s));

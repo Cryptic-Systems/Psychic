@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main, master]
 
+permissions:
+  contents: read
+
 jobs:
   build-linux:
     name: Build & Test (Linux)
@@ -29,7 +32,6 @@ jobs:
         run: cmake --build build -j$(nproc)
       - name: Unit tests
         run: ctest --test-dir build --output-on-failure --timeout 60
-
   build-macos:
     name: Build & Test (macOS)
     runs-on: macos-latest
@@ -74,6 +76,22 @@ jobs:
         run: |
           $env:PATH = "$PWD\build\Release;$PWD\build;$env:PATH"
           ctest --test-dir build -C Release --output-on-failure --timeout 60
+      - name: Package Windows test player
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Copy-Item build/tests/Release/psychic_test_player.exe dist/
+          Copy-Item build/tests/Release/psychic_playback_simulator.exe dist/
+          Copy-Item build/tests/Release/dsp_engine.dll dist/
+          Copy-Item tests/PSYCHIC_WINDOWS_TEST_PLAYER.md dist/README.txt
+          Compress-Archive -Path dist/* -DestinationPath PsychicTestPlayer-Windows.zip -Force
+      - name: Upload Windows test player
+        uses: actions/upload-artifact@v4
+        with:
+          name: psychic-windows-test-player
+          path: PsychicTestPlayer-Windows.zip
+          if-no-files-found: error
+          retention-days: 14
 
   build-android:
     name: Build (Android NDK)

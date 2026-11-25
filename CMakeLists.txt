@@ -174,7 +174,14 @@ endif()
 if(DSP_BUILD_STATIC)
     add_library(dsp_engine_static STATIC ${DSP_LIB_SOURCES})
     target_compile_definitions(dsp_engine_static PUBLIC DSP_ENGINE_STATIC)
-    set_target_properties(dsp_engine_static PROPERTIES OUTPUT_NAME "dsp_engine")
+    # MSVC uses the same .lib suffix for static archives and DLL import
+    # libraries. Give the static archive a distinct filename to avoid racing
+    # the dsp_engine.dll import library in parallel multi-target builds.
+    if(WIN32)
+        set_target_properties(dsp_engine_static PROPERTIES OUTPUT_NAME "dsp_engine_static")
+    else()
+        set_target_properties(dsp_engine_static PROPERTIES OUTPUT_NAME "dsp_engine")
+    endif()
     configure_dsp_target(dsp_engine_static)
 endif()
 

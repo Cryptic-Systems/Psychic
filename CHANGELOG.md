@@ -1,12 +1,50 @@
 # Changelog
 
+## [Unreleased] — Adaptive Audio Control Engine
+### Added
+- Conservative host-side adapter from completed track scans to the existing bass-energy / crest playback hints, with fail-closed validation and no fabricated true-peak or safe-bass data
+- Analysis hints now use the existing atomic control mailbox and are applied at the next audio block boundary, avoiding direct host-thread writes to live limiter state
+- Regression tests for completed/incomplete scans, malformed values, bounded hint mapping, and existing C API application
+- Bounded host-side LRU cache for completed local track-analysis snapshots, keyed by stable media identity and host-supplied revision metadata
+- Stale-report invalidation, explicit per-track invalidation, cache statistics, and capacity-based eviction tests
+- Calibration regression coverage for advisory confidence thresholds, midpoint response, monotonicity, and malformed/non-finite profile rejection
+- Fail-closed validation of track summary duration, metric ranges, and percentile ordering before classification
+- Confidence-rated advisory whole-track traits for consistent loudness, dynamic range, bass prominence, sustained transient density, quiet level, and section variability
+- Bounded crest-percentile and high-crest-duration statistics so transient-rich findings cannot be triggered by one isolated peak
+- Explainable review recommendations kept separate from DSP controls and playback processing
+- Rolling live track-state analysis with fast/slow loudness envelopes, loudness trend, rolling bass RMS, and bass prominence
+- Content-aware virtual-bass decisions now use rolling bass energy rather than a peak-hold transient meter
+- Transient-density-aware headroom budgeting that discounts isolated high-crest events while allowing recurring peaks to build sustained pressure
+- Internal per-block decision telemetry for rolling fast/slow loudness, section trend, rolling bass energy, and adaptive subsystem reasons, requested/applied targets, shared headroom, loudness references, and limiter gain-reduction peak hold
+- Bounded lock-free snapshot reads using lock-free scalar atomics; no callback logging, allocation, or event queue
+- Deterministic section-transition validation for abrupt steps, gradual fades, steady-state recovery, and bass-only balance changes
+- Generated 48 kHz signal scenarios for compressed-style modulation, sparse percussion, clipped/limited-style material, and programme-level fades
+- Bounded offline whole-track profile statistics: integrated RMS, active loudness percentiles/range, peak/crest, bass prominence, silence ratio, and section-transition duration
+- Host-side incremental track scan lifecycle with progress, cancellation, and decoded PCM ingestion
+
+### Added
+- Internal AACE coordination layer for shared headroom allocation and time-based adaptive control smoothing
+- Separate pre-enhancement control RMS so auto-gain does not counteract automatic bass/preamp boosts
+- Focused tests for rolling track-state trends, transient pressure, sustained-level gain-cut confidence, section-transition protection, headroom allocation, telemetry, and block-size-independent smoothing
+- Full-engine regression verifying that gain cuts build after a loud section persists rather than immediately following a level transition
+- Deterministic offline track-analysis tests and evaluator summary output
+- Architecture and validation notes in `docs/ADAPTIVE_CONTROL_ENGINE.md`
+
+### Changed
+- Added a 3 s sustained-control-level confidence gate for auto-gain cuts, eased during detected section transitions; positive gain/headroom allocation is unchanged
+- Reduced the default auto-gain maximum cut from 6 dB to 3 dB after expanded programme measurements showed sustained cut-ceiling behaviour on already-mastered material; applications can still explicitly request deeper cuts up to 24 dB
+- Auto-gain headroom uses post-user-EQ peak and RMS with transient-density handling, rather than stale post-limiter telemetry
+- Auto-bass, auto-preamp, virtual-bass, and auto-gain target transitions use elapsed-time smoothing
+
+### Compatibility
+- No public C ABI, Flutter package, or Resonate integration identifiers changed
+
 ## [0.6.1] — 2026-11-24
 
 ### Branding
 - Product / project renamed to **Psychic** (adaptive audio DSP engine)
 - C ABI unchanged (`dsp_*`, `dsp_engine.h`, link targets `dsp_engine*`) for host compatibility
 - Docs and banners updated; Resonate integration guide retitled
-
 
 ## [0.6.0] — 2026-11-20
 
@@ -16,83 +54,3 @@
 - Content-aware virtual bass (`dsp_auto_vb_*`)
 - Crest-based limiter personality (`dsp_limiter_set_crest_hint`)
 - `dsp_apply_analysis_hint` — feed offline scan into live engine
-- Silence hygiene — decay applied gains across gaps
-- Docs updated in `docs/RESONATE_INTEGRATION.md`
-
-
-## [0.5.1] — 2026-11-20
-
-### Auto-DVC / short-term RMS (item 5)
-- `dsp_auto_gain_*` drives DVC toward a short-term RMS target with bias, max boost/cut
-- Boost further limited by measured headroom − margin (shares budget with auto-bass)
-- `DspLevelMeter.short_term_rms_db` + `dsp_get_short_term_rms_db`
-- Window configurable (default 400 ms)
-
-### Docs
-- `docs/RESONATE_INTEGRATION.md` — host wiring, cache, UI, JNI checklist
-
-
-## [0.5.0] — 2026-11-20
-
-### Intelligent headroom / auto-bass
-- **Path A (offline):** `dsp_analyze_buffer` — sample peak, true-peak, RMS, crest, bass energy
-- **Path A:** `dsp_probe_max_bass_gain_db` — binary-search max safe low-shelf under ceiling−margin
-- **Path B (online):** running `DspLevelMeter` (in peak / true-peak, post-EQ peak, bass-band, headroom)
-- **Path B:** `dsp_auto_bass_*` — dedicated low-shelf servo toward `min(target, headroom−margin)`
-- Pipeline: EQ → auto-bass shelf → speaker/VB → preamp → DVC → limiter → dither
-- Limiter remains the hard safety net; auto-bass only reduces boost when headroom is tight
-
-### Tests
-- `analyze_buffer` and `level_meter_and_auto_bass` regression coverage
-
-## [0.4.0] — 2026-11-14
-
-### EQ capacity
-- Raised engine-side parametric EQ max from 16 → **31** bands (`DSP_EQ_MAX_BANDS`)
-- Public header exposes `DSP_EQ_MAX_BANDS`; bulk setter retains full `DspEqBand` (q + type)
-- Regression test: configure + process 31 bands with non-default Q and shelf/peak/LP/HP types
-
-### Resonate integration surface
-- `dsp_process_pcm16` in-place PCM16 path for Media3 / JNI
-- Lock-free control mailbox (setters safe from UI thread; applied at process)
-- Preamp (linear / dB) independent of DVC
-- Speaker mode + virtual bass
-- Two-band limiter (`DSP_LIMITER_TWOBAND`) with LR crossover + dual ceilings
-- Master `dsp_set_processing_enabled` bypass
-- `DspStats` process/CPU diagnostics
-- Pipeline: EQ → speaker/VB → preamp → DVC → limiter → dither
-
-### Tests
-- 34 unit tests covering PCM16, preamp/speaker, two-band, bypass, stats
-- Plus regression for 31-band EQ full params
-
-## [0.3.2] — 2026-10-26
-
-### Added
-- Full cross-platform audio backends:
-  - **AAudio** (Android) — low-latency / exclusive mode support
-  - **WASAPI** (Windows) — shared + exclusive, Pro Audio thread priority
-  - **Core Audio** (macOS/iOS) — RemoteIO / Default Output
-- CMake auto-detection of host platform backends
-- Complete public C API for limiter, dither, SRC and backends
-- Self-contained unit-test framework + 12+ tests
-- Throughput benchmarks (MSamples/s + realtime factor)
-- GitHub Actions CI matrix (Linux / macOS / Windows / Android NDK)
-- Flutter FFI bindings updated for all new features
-- True-peak style limiter with configurable threshold & release
-- TPDF / shaped dither
-- Linear / cubic / HQ sample-rate conversion path
-
-### Changed
-- Internal processing uses double precision by default (`DSP_USE_DOUBLE`)
-- Real-time safety hardened (no allocations on the process path)
-- Version string now reports `0.3.2`
-
-### Fixed
-- Multi-channel no-allocation process path
-- Limiter attack/release timing
-- Backend factory stubs when a platform define is absent
-
-## [0.2.0] — earlier
-- Multi-band EQ + Flutter FFI
-- Initial DVC and ring-buffer work

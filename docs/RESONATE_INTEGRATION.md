@@ -108,6 +108,8 @@ Does **not** need a live `DspEngine*` (pure functions).
 
 While auto-gain is **on**, prefer **bias** over manual `dsp_dvc_set_gain_db` (engine overwrites DVC each block).
 
+**AACE note:** auto-gain's internal control RMS is measured after user EQ but before automatic bass, virtual bass, and auto-preamp. The internal control RMS also gently de-emphasizes low-frequency energy, reducing the tendency for bass-heavy passages to pull down the entire mix. It is a control signal, not a standards-compliant LUFS measurement. This prevents those enhancement stages from driving auto-gain to undo their own level changes. The public short-term RMS meter remains an output-side measurement after bass/preamp and before DVC; its existing API meaning and Resonate binding are unchanged.
+
 ### 2.5 Meters (poll ~10–30 Hz from UI)
 
 | API / field | UI use |

@@ -52,9 +52,19 @@ void process_audio(){
     BOOL ok=CreateProcessW(nullptr,mutableCmd.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,dir.c_str(),&si,&pi);
     CloseHandle(writePipe);
     if(!ok){CloseHandle(readPipe);EnableWindow(g_process,TRUE);set_log(L"Could not start the DSP simulator.");return;}
+    // Drain the child's pipe before waiting: a full pipe can otherwise block
+    // the simulator while the GUI waits forever for process exit.
+    std::string bytes;char buf[4096];DWORD got=0;
+    constexpr std::size_t kMaxCapturedOutput=2u*1024u*1024u;
+    while(ReadFile(readPipe,buf,sizeof(buf),&got,nullptr)&&got){
+        const std::size_t keep=bytes.size()<kMaxCapturedOutput
+            ? std::min<std::size_t>(got,kMaxCapturedOutput-bytes.size()) : 0;
+        if(keep)bytes.append(buf,keep);
+    }
+    CloseHandle(readPipe);
     WaitForSingleObject(pi.hProcess,INFINITE);DWORD code=1;GetExitCodeProcess(pi.hProcess,&code);
-    std::string bytes;char buf[4096];DWORD got=0;while(ReadFile(readPipe,buf,sizeof(buf),&got,nullptr)&&got)bytes.append(buf,got);
-    CloseHandle(readPipe);CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
+    if(bytes.size()==kMaxCapturedOutput)bytes.append("\\n[Output truncated after 2 MiB.]");
     int needed=MultiByteToWideChar(CP_UTF8,0,bytes.data(),static_cast<int>(bytes.size()),nullptr,0);
     std::wstring report(static_cast<size_t>(needed),L'\0');if(needed)MultiByteToWideChar(CP_UTF8,0,bytes.data(),static_cast<int>(bytes.size()),report.data(),needed);
     if(code==0){report+=L"\r\n\r\nProcessing complete. CSV diagnostics saved beside output.";EnableWindow(g_open,TRUE);}

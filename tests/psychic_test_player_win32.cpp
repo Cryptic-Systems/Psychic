@@ -46,6 +46,9 @@ void process_audio(){
     if(CompareStringOrdinal(full_in.c_str(),-1,full_out.c_str(),-1,TRUE)==CSTR_EQUAL){
         MessageBoxW(GetParent(g_input),L"Output must be a different file from the input WAV. Choose a new output name.",L"Psychic Test Player",MB_ICONWARNING);return;
     }
+    if(GetFileAttributesW(full_out.c_str())!=INVALID_FILE_ATTRIBUTES){
+        if(MessageBoxW(GetParent(g_input),L"Output file already exists. Replace it?",L"Psychic Test Player",MB_YESNO|MB_ICONWARNING)!=IDYES)return;
+    }
     wchar_t exe[MAX_PATH]{};GetModuleFileNameW(nullptr,exe,MAX_PATH);
     std::wstring dir=exe;auto slash=dir.find_last_of(L"\\/");dir=slash==std::wstring::npos?L".":dir.substr(0,slash);
     std::wstring sim=dir+L"\\psychic_playback_simulator.exe";

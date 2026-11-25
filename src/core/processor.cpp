@@ -98,6 +98,12 @@ struct DspEngine {
     std::atomic<float> mb_auto_gain_max_boost{6.f};
     std::atomic<float> mb_auto_gain_max_cut{3.f};
     std::atomic<float> mb_auto_gain_window_ms{400.f};
+    /* bit17 analysis bass hint, bit18 crest hint, bit19 safe-bass value,
+       bit20 safe-bass availability */
+    std::atomic<float> mb_hint_bass_energy_db{-40.f};
+    std::atomic<float> mb_hint_crest_db{0.f};
+    std::atomic<float> mb_hint_max_safe_bass_db{24.f};
+    std::atomic<int>   mb_hint_has_max_safe{0};
 
     int64_t stats_calls = 0;
     int64_t stats_total_ns = 0;
@@ -621,6 +627,16 @@ static void apply_mailbox(DspEngine* eng) {
     if (flags & 65536) {
         eng->auto_gain_window_ms = eng->mb_auto_gain_window_ms.load(std::memory_order_relaxed);
     }
+    if (flags & 131072)
+        eng->hint_bass_energy_db = eng->mb_hint_bass_energy_db.load(std::memory_order_relaxed);
+    if (flags & 262144) {
+        const float crest = eng->mb_hint_crest_db.load(std::memory_order_relaxed);
+        if (crest > 0.f) dsp_limiter_set_crest_hint(eng, crest);
+    }
+    if (flags & 524288)
+        eng->hint_max_safe_bass_db = eng->mb_hint_max_safe_bass_db.load(std::memory_order_relaxed);
+    if (flags & 1048576)
+        eng->hint_has_max_safe = eng->mb_hint_has_max_safe.load(std::memory_order_relaxed) != 0;
 }
 
 static void meter_hold(float& held_db, float instant_db, float decay) {
@@ -2020,15 +2036,14 @@ float dsp_limiter_get_crest_hint(const DspEngine* eng) {
 DspError dsp_apply_analysis_hint(DspEngine* eng, const DspAnalysisResult* analysis,
                                  float max_safe_bass_db) {
     if (!eng || !analysis) return DSP_ERR_INVALID_ARG;
-    eng->hint_bass_energy_db = analysis->bass_energy_db;
-    if (analysis->crest_db > 0.f)
-        dsp_limiter_set_crest_hint(eng, analysis->crest_db);
-    if (max_safe_bass_db < 24.f) {
-        eng->hint_max_safe_bass_db = max_safe_bass_db;
-        eng->hint_has_max_safe = true;
-    } else {
-        eng->hint_has_max_safe = false;
-    }
+    eng->mb_hint_bass_energy_db.store(analysis->bass_energy_db, std::memory_order_relaxed);
+    eng->mb_hint_crest_db.store(analysis->crest_db, std::memory_order_relaxed);
+    eng->mb_hint_max_safe_bass_db.store(max_safe_bass_db, std::memory_order_relaxed);
+    eng->mb_hint_has_max_safe.store(max_safe_bass_db < 24.f ? 1 : 0,
+                                    std::memory_order_relaxed);
+    eng->mb_flags.fetch_or(131072 | 262144 | 524288 | 1048576,
+                           std::memory_order_acq_rel);
+    eng->ctrl_seq.fetch_add(1, std::memory_order_release);
     return DSP_OK;
 }
 

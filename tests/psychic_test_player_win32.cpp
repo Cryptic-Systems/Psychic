@@ -41,6 +41,7 @@ void process_audio(){
     DWORD attr=GetFileAttributesW(sim.c_str());
     if(attr==INVALID_FILE_ATTRIBUTES){MessageBoxW(GetParent(g_input),L"psychic_playback_simulator.exe is missing. Extract the complete ZIP and keep both EXEs together.",L"Psychic Test Player",MB_ICONERROR);return;}
     int sel=static_cast<int>(SendMessageW(g_mode,CB_GETCURSEL,0,0));const wchar_t* modes[]={L"both",L"none",L"bass",L"crest"};
+    if(sel<0||sel>3){set_log(L"Select a valid hint mode.");return;}
     std::wstring cmd=quote(sim)+L" "+quote(in)+L" "+quote(out)+L" "+modes[sel<0?3:sel];
     SECURITY_ATTRIBUTES sa{sizeof(sa),nullptr,TRUE};HANDLE readPipe{},writePipe{};
     if(!CreatePipe(&readPipe,&writePipe,&sa,0)){set_log(L"Could not create process output pipe.");return;}
@@ -64,7 +65,7 @@ void process_audio(){
     CloseHandle(readPipe);
     WaitForSingleObject(pi.hProcess,INFINITE);DWORD code=1;GetExitCodeProcess(pi.hProcess,&code);
     CloseHandle(pi.hThread);CloseHandle(pi.hProcess);
-    if(bytes.size()==kMaxCapturedOutput)bytes.append("\\n[Output truncated after 2 MiB.]");
+    if(bytes.size()==kMaxCapturedOutput)bytes.append("\n[Output truncated after 2 MiB.]");
     int needed=MultiByteToWideChar(CP_UTF8,0,bytes.data(),static_cast<int>(bytes.size()),nullptr,0);
     std::wstring report(static_cast<size_t>(needed),L'\0');if(needed)MultiByteToWideChar(CP_UTF8,0,bytes.data(),static_cast<int>(bytes.size()),report.data(),needed);
     if(code==0){report+=L"\r\n\r\nProcessing complete. CSV diagnostics saved beside output.";EnableWindow(g_open,TRUE);}

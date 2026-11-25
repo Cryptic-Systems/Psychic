@@ -36,6 +36,16 @@ void browse_output(){auto p=browse_file(true,get_text(g_output));if(!p.empty())S
 void process_audio(){
     auto in=get_text(g_input), out=get_text(g_output);
     if(in.empty()||out.empty()){MessageBoxW(GetParent(g_input),L"Choose an input WAV and output WAV first.",L"Psychic Test Player",MB_ICONWARNING);return;}
+    // Do not let a user accidentally overwrite the source track with output.
+    auto absolute_path=[](const std::wstring& p){
+        std::vector<wchar_t> buffer(32768);
+        DWORD n=GetFullPathNameW(p.c_str(),static_cast<DWORD>(buffer.size()),buffer.data(),nullptr);
+        return (n>0&&n<buffer.size())?std::wstring(buffer.data(),n):p;
+    };
+    const std::wstring full_in=absolute_path(in),full_out=absolute_path(out);
+    if(CompareStringOrdinal(full_in.c_str(),-1,full_out.c_str(),-1,TRUE)==CSTR_EQUAL){
+        MessageBoxW(GetParent(g_input),L"Output must be a different file from the input WAV. Choose a new output name.",L"Psychic Test Player",MB_ICONWARNING);return;
+    }
     wchar_t exe[MAX_PATH]{};GetModuleFileNameW(nullptr,exe,MAX_PATH);
     std::wstring dir=exe;auto slash=dir.find_last_of(L"\\/");dir=slash==std::wstring::npos?L".":dir.substr(0,slash);
     std::wstring sim=dir+L"\\psychic_playback_simulator.exe";

@@ -46,13 +46,17 @@ int main() {
     scan.analysis.mean_crest_db = std::numeric_limits<float>::infinity();
     if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 10\n"); return 10; }
 
-    // Bounded conversion prevents extreme but finite values from escaping.
+    // Valid boundary values are mapped to the playback API's narrower range.
     scan = completed_scan();
-    scan.analysis.bass_rms_db = 30.f;
-    scan.analysis.mean_crest_db = 60.f;
+    scan.analysis.bass_rms_db = 24.f;
+    scan.analysis.mean_crest_db = 48.f;
     if (!make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 11\n"); return 11; }
     if (hint.analysis.bass_energy_db != 24.f ||
         hint.analysis.crest_db != 24.f) { std::fprintf(stderr, "track_playback_hint_tests failure at check 12\n"); return 12; }
+
+    scan = completed_scan();
+    scan.analysis.bass_rms_db = 25.f; // invalid scanner metric
+    if (make_track_playback_hint(scan, &hint)) { std::fprintf(stderr, "track_playback_hint_tests failure at check 19\n"); return 19; }
 
     if (apply_track_playback_hint(nullptr, completed_scan()) !=
         DSP_ERR_INVALID_ARG) { std::fprintf(stderr, "track_playback_hint_tests failure at check 13\n"); return 13; }

@@ -68,9 +68,9 @@ bool read_header(std::ifstream& f, WavInfo& w) {
         const uint32_t size = u32(chunk + 4);
         const auto start = f.tellg();
         if (start < 0) return false;
-        const std::streamoff chunk_end = static_cast<std::streamoff>(start) +
-                                         static_cast<std::streamoff>(size);
-        if (chunk_end < start || chunk_end > riff_end) return false;
+        const std::streamoff chunk_start = static_cast<std::streamoff>(start);
+        const std::streamoff chunk_end = chunk_start + static_cast<std::streamoff>(size);
+        if (chunk_end < chunk_start || chunk_end > riff_end) return false;
         const std::streamoff next = chunk_end + static_cast<std::streamoff>(size & 1u);
         if (next < chunk_end || next > riff_end) return false;
 

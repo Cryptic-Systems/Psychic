@@ -3,6 +3,7 @@
 ## [Unreleased] — Adaptive Audio Control Engine
 ### Added
 - Conservative host-side adapter from completed track scans to the existing bass-energy / crest playback hints, with fail-closed validation and no fabricated true-peak or safe-bass data
+- Analysis hints now use the existing atomic control mailbox and are applied at the next audio block boundary, avoiding direct host-thread writes to live limiter state
 - Regression tests for completed/incomplete scans, malformed values, bounded hint mapping, and existing C API application
 - Bounded host-side LRU cache for completed local track-analysis snapshots, keyed by stable media identity and host-supplied revision metadata
 - Stale-report invalidation, explicit per-track invalidation, cache statistics, and capacity-based eviction tests

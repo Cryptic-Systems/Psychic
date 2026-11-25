@@ -765,12 +765,12 @@ TEST(headroom_budget_and_hints) {
     ar.crest_db = 11.f;
     ar.bass_energy_db = -25.f;
     EXPECT_EQ(dsp_apply_analysis_hint(eng, &ar, 5.0f), DSP_OK);
-    EXPECT_NEAR(dsp_limiter_get_crest_hint(eng), 11.f, 1e-3f);
 
     const int frames = 512;
     std::vector<float> in(frames * 2, 0.1f), out(frames * 2);
     for (int n = 0; n < 10; ++n)
         EXPECT_EQ(dsp_process(eng, in.data(), out.data(), frames), DSP_OK);
+    EXPECT_NEAR(dsp_limiter_get_crest_hint(eng), 11.f, 1e-3f);
     EXPECT_TRUE(std::isfinite(dsp_auto_preamp_get_applied_db(eng)));
     EXPECT_TRUE(dsp_auto_vb_get_applied(eng) >= 0.f);
     for (float s : out) EXPECT_TRUE(std::isfinite(s));

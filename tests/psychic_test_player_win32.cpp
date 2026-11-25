@@ -40,7 +40,7 @@ void process_audio(){
     std::wstring sim=dir+L"\\psychic_playback_simulator.exe";
     DWORD attr=GetFileAttributesW(sim.c_str());
     if(attr==INVALID_FILE_ATTRIBUTES){MessageBoxW(GetParent(g_input),L"psychic_playback_simulator.exe is missing. Extract the complete ZIP and keep both EXEs together.",L"Psychic Test Player",MB_ICONERROR);return;}
-    int sel=static_cast<int>(SendMessageW(g_mode,CB_GETCURSEL,0,0));const wchar_t* modes[]={L"none",L"bass",L"crest",L"both"};
+    int sel=static_cast<int>(SendMessageW(g_mode,CB_GETCURSEL,0,0));const wchar_t* modes[]={L"both",L"none",L"bass",L"crest"};
     std::wstring cmd=quote(sim)+L" "+quote(in)+L" "+quote(out)+L" "+modes[sel<0?3:sel];
     SECURITY_ATTRIBUTES sa{sizeof(sa),nullptr,TRUE};HANDLE readPipe{},writePipe{};
     if(!CreatePipe(&readPipe,&writePipe,&sa,0)){set_log(L"Could not create process output pipe.");return;}

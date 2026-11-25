@@ -136,3 +136,22 @@ if(WIN32 AND TARGET dsp_engine)
     )
 endif()
 
+
+# Lightweight Windows desktop front-end for the offline audio test simulator.
+if(WIN32 AND TARGET dsp_engine)
+    add_executable(psychic_test_player WIN32 psychic_test_player_win32.cpp)
+    target_link_libraries(psychic_test_player PRIVATE comdlg32 shell32)
+    add_dependencies(psychic_test_player psychic_playback_simulator)
+    if(MSVC)
+        target_compile_options(psychic_test_player PRIVATE /W4)
+    endif()
+    add_custom_command(TARGET psychic_test_player POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:psychic_playback_simulator>
+            $<TARGET_FILE_DIR:psychic_test_player>
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            $<TARGET_FILE:dsp_engine>
+            $<TARGET_FILE_DIR:psychic_test_player>
+        COMMENT "Package Psychic test player dependencies beside the GUI"
+    )
+endif()
